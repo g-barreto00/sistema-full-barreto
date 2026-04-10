@@ -1,0 +1,12 @@
+cat > .gitignore << 'EOF'
+# Backend
+backend/target/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Mac
+.DS_Store
+__MACOSX
+EOF

@@ -1352,7 +1352,7 @@ function PedidosPage() {
                           <span style={{ fontWeight: 600 }}>{p.cliente?.nome ?? "—"}</span>
                         </div>
                       </td>
-                      <td style={{ color: "var(--text-sec)" }}>{p.dataPedido ? new Date(p.dataPedido).toLocaleDateString("pt-BR") : "—"}</td>
+                      <td style={{ color: "var(--text-sec)" }}>{formatDate(p.dataPedido)}</td>
                       <td style={{ textAlign: "right", fontWeight: 700, fontFamily: "Manrope" }}>
                         R$ {(p.valorTotal ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                       </td>
@@ -1538,7 +1538,7 @@ function PedidosPage() {
               {[
                 { label: "Valor Total", value: `R$ ${(selectedPedido.valorTotal ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, color: "var(--primary)" },
                 { label: "Bairro", value: selectedPedido.cliente?.bairro ?? "—", color: "var(--text)" },
-                { label: "Data", value: selectedPedido.dataPedido ? new Date(selectedPedido.dataPedido).toLocaleDateString("pt-BR") : "—", color: "var(--text)" },
+                { label: "Data", value: formatDate(selectedPedido.dataPedido), color: "var(--text)" },
               ].map((s) => (
                 <div key={s.label} style={{ background: "var(--surface-low)", borderRadius: "var(--radius-sm)", padding: "12px" }}>
                   <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>{s.label}</div>
@@ -1555,7 +1555,7 @@ function PedidosPage() {
 
 // ─── ROTEIROS PAGE ────────────────────────────────────────────────────────────
 function RoteirosPage() {
-  const today = new Date().toISOString().split("T")[0];
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
   const { data: roteiros, loading, error, refetch } = useFetch(() => api.roteiros.listar(today), [today]);
   const { data: caminhoes, loading: lcam, refetch: refetchCam } = useFetch(() => api.roteiros.caminhoes());
   const { data: pedidos } = useFetch(() => api.pedidos.listar());
@@ -1659,11 +1659,7 @@ function RoteirosPage() {
       });
     });
 
-    const dataStr = roteiro.data
-      ? (Array.isArray(roteiro.data)
-          ? new Date(roteiro.data[0], roteiro.data[1]-1, roteiro.data[2]).toLocaleDateString("pt-BR")
-          : new Date(roteiro.data).toLocaleDateString("pt-BR"))
-      : "—";
+    const dataStr = formatDate(roteiro.data);
 
     const pesoTotal = pedidos.reduce((acc, p) => acc + (p.pesoTotal ?? 0), 0);
     const valorTotal = pedidos.reduce((acc, p) => acc + (p.valorTotal ?? 0), 0);
@@ -1962,7 +1958,7 @@ ${pedidos.map((p, idx) => `
                   <div>
                     <h3 style={{ fontSize: 18, fontWeight: 800, fontFamily: "Manrope" }}>ROTA-{String(selectedRoteiro.numeroRoteiro).padStart(3, "0")}</h3>
                     <p style={{ fontSize: 12, opacity: 0.8, marginTop: 2 }}>
-                      {selectedRoteiro.caminhao?.placa ?? "—"} · {selectedRoteiro.data ? (Array.isArray(selectedRoteiro.data) ? new Date(selectedRoteiro.data[0], selectedRoteiro.data[1]-1, selectedRoteiro.data[2]).toLocaleDateString("pt-BR") : new Date(selectedRoteiro.data).toLocaleDateString("pt-BR")) : "—"}
+                      {selectedRoteiro.caminhao?.placa ?? "—"} · {formatDate(selectedRoteiro.data)}
                     </p>
                   </div>
                   <span style={{ background: "rgba(255,255,255,0.2)", padding: "3px 10px", borderRadius: 4, fontSize: 10, fontWeight: 700 }}>ATIVA</span>
@@ -1990,8 +1986,8 @@ ${pedidos.map((p, idx) => `
                 <div style={{ maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10 }}>
                   {selectedRoteiro.pedidos?.map((p, i) => (
                     <div key={p.numeroPedido} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: 10, borderBottom: "1px solid var(--surface-low)" }}>
-                      <div style={{ width: 22, height: 22, borderRadius: "50%", background: "var(--primary)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
-                        {i + 1}
+                      <div style={{ width: 22, height: 22, borderRadius: "50%", background: i === 0 ? "var(--green)" : "var(--primary)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
+                        {i === 0 ? <Icon name="check" style={{ fontSize: 12 }} /> : i + 1}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2110,7 +2106,7 @@ ${pedidos.map((p, idx) => `
                 {[
                   { label: "Caminhão", value: detailRoteiro.caminhao?.placa ?? "—" },
                   { label: "Motorista", value: detailRoteiro.caminhao?.motorista ?? "—" },
-                  { label: "Data", value: detailRoteiro.data ? (Array.isArray(detailRoteiro.data) ? new Date(detailRoteiro.data[0], detailRoteiro.data[1]-1, detailRoteiro.data[2]).toLocaleDateString("pt-BR") : new Date(detailRoteiro.data).toLocaleDateString("pt-BR")) : "—" },
+                  { label: "Data", value: formatDate(detailRoteiro.data) },
                 ].map(f => (
                   <div key={f.label}>
                     <div style={{ fontSize: 9, opacity: 0.6, fontWeight: 700, textTransform: "uppercase", marginBottom: 2 }}>{f.label}</div>
@@ -2211,7 +2207,7 @@ ${pedidos.map((p, idx) => `
             <div style={{ background: "var(--surface-low)", borderRadius: "var(--radius-sm)", padding: "12px 16px", marginBottom: 16 }}>
               <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 2 }}>Roteiro</div>
               <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "Manrope" }}>
-                ROTA-{String(roteiroToFinalizar.numeroRoteiro).padStart(3, "0")} · {roteiroToFinalizar.caminhao?.motorista ?? "—"}
+                ROTA-{String(roteiroToFinalizar.numeroRoteiro).padStart(3, "0")} · {roteiroToFinalizar.caminhao?.motorista ?? "—"} · {formatDate(roteiroToFinalizar.data)}
               </div>
               <div style={{ fontSize: 12, color: "var(--text-sec)", marginTop: 2 }}>
                 Marque os pedidos que foram entregues. Os desmarcados permanecem como Pendente.
@@ -2301,6 +2297,18 @@ ${pedidos.map((p, idx) => `
       </Modal>
     </div>
   );
+}
+
+// ─── Date helper ──────────────────────────────────────────────────────────────
+function formatDate(d) {
+  if (!d) return "—";
+  if (Array.isArray(d)) {
+    // Jackson serializes LocalDate as [year, month, day]
+    return `${String(d[2]).padStart(2,"0")}/${String(d[1]).padStart(2,"0")}/${d[0]}`;
+  }
+  // String like "2026-04-09"
+  const [year, month, day] = d.split("-");
+  return `${day}/${month}/${year}`;
 }
 
 // ─── Bairro color palette ─────────────────────────────────────────────────────
