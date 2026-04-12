@@ -53,22 +53,21 @@ public class EstoqueService {
     // ── Movimentações ─────────────────────────────────────────────────────────
 
     @Transactional
-        public void baixar(Produto produto, int quantidade) {
-            // Garrafão completo e reposição compartilham o mesmo estoque
-            Produto chave = (produto == Produto.GARRAFAO_COMPLETO || produto == Produto.GARRAFAO_REPOSICAO)
-                    ? Produto.GARRAFAO_REPOSICAO
-                    : produto;
+    public void baixar(Produto produto, int quantidade) {
+        Produto chave = (produto == Produto.GARRAFAO_COMPLETO || produto == Produto.GARRAFAO_REPOSICAO)
+                ? Produto.GARRAFAO_REPOSICAO
+                : produto;
 
-            Estoque e = estoqueRepository.findById(chave)
-                    .orElseThrow(() -> new IllegalStateException(
-                            "Produto sem registro de estoque: " + chave));
-            if (quantidade > e.getQuantidade()) {
-                throw new IllegalStateException(
-                        "Tentativa de baixa maior que o estoque: " + chave.getNome());
-            }
-            e.setQuantidade(e.getQuantidade() - quantidade);
-            estoqueRepository.save(e);
+        Estoque e = estoqueRepository.findById(chave)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Produto sem registro de estoque: " + chave));
+        if (quantidade > e.getQuantidade()) {
+            throw new IllegalStateException(
+                    "Tentativa de baixa maior que o estoque: " + chave.getNome());
         }
+        e.setQuantidade(e.getQuantidade() - quantidade);
+        estoqueRepository.save(e);
+    }
 
     @Transactional
     public void repor(Produto produto, int quantidade) {

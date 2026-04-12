@@ -703,6 +703,34 @@ function DashboardPage({ setPage }) {
   );
 }
 
+// ─── String helpers ───────────────────────────────────────────────────────────
+function capitalize(str) {
+  if (!str) return "";
+  return str.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// ─── Validation helpers ───────────────────────────────────────────────────────
+function validarCPF(v) {
+  const d = v.replace(/\D/g, "");
+  return d.length === 11;
+}
+function validarCNPJ(v) {
+  const d = v.replace(/\D/g, "");
+  return d.length === 14;
+}
+function validarTelefone(v) {
+  const d = v.replace(/\D/g, "");
+  return d.length >= 10 && d.length <= 11;
+}
+function validarCEP(v) {
+  const d = v.replace(/\D/g, "");
+  return d.length === 8;
+}
+function getFieldStatus(value, validator) {
+  if (!value) return null;
+  return validator(value) ? "valid" : "invalid";
+}
+
 // ─── CLIENTES PAGE ────────────────────────────────────────────────────────────
 function ClientesPage() {
   const { data, loading, error, refetch } = useFetch(() => api.clientes.listar());
@@ -718,7 +746,8 @@ function ClientesPage() {
   const [novoBairro, setNovoBairro] = useState("");
   const [savingBairro, setSavingBairro] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ tipo: "CPF", nome: "", documento: "", endereco: "", bairro: "", telefone: "", razaoSocial: "", pontoReferencia: "" });
+  const [dupWarnings, setDupWarnings] = useState({});
+  const [form, setForm] = useState({ tipo: "CPF", nome: "", documento: "", endereco: "", bairro: "", cep: "", telefone: "", razaoSocial: "", pontoReferencia: "" });
 
   const PER_PAGE = 10;
 
@@ -750,13 +779,102 @@ function ClientesPage() {
   const AV_COLORS = ["sky", "indigo", "amber", "slate", "green"];
   function avColor(i) { return AV_COLORS[i % AV_COLORS.length]; }
 
+  function checkDuplicates(field, value) {
+    if (!value || !data) return;
+    const clientes = data ?? [];
+    let warning = null;
+    if (field === "documento") {
+      const found = clientes.find(c => c.documento?.replace(/\D/g,"") === value.replace(/\D/g,""));
+      if (found) warning = `Documento já cadastrado para ${found.nome}`;
+    } else if (field === "telefone") {
+      const found = clientes.find(c => c.telefone?.replace(/\D/g,"") === value.replace(/\D/g,""));
+      if (found) warning = `Telefone já cadastrado para ${found.nome}`;
+    } else if (field === "nome") {
+      const found = clientes.find(c => c.nome?.toLowerCase() === value.toLowerCase());
+      if (found) warning = `Nome já cadastrado (ID #${found.id})`;
+    }
+    setDupWarnings(prev => ({ ...prev, [field]: warning }));
+  }
+
+  async function buscarCep(cep) {
+    const limpo = cep.replace(/\D/g, "");
+    if (limpo.length !== 8) return;
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${limpo}/json/`);
+      const data = await res.json();
+      if (data.erro) return;
+
+      const bairroEncontrado = (bairros ?? []).find(
+        b => b.nome.toLowerCase() === (data.bairro ?? "").toLowerCase()
+      );
+
+      setForm(f => ({
+        ...f,
+        endereco: capitalize(data.logradouro) ?? f.endereco,
+        bairro: bairroEncontrado ? bairroEncontrado.nome : f.bairro,
+      }));
+
+      if (data.bairro && !bairroEncontrado) {
+        if (window.confirm(`Bairro "${data.bairro}" não está cadastrado. Deseja cadastrá-lo?`)) {
+          await api.bairros.criar(data.bairro);
+          refetchBairros();
+          setForm(f => ({ ...f, bairro: data.bairro }));
+        }
+      }
+    } catch { /* silencioso */ }
+  }
+
+  async function buscarCNPJ(cnpj) {
+    const limpo = cnpj.replace(/\D/g, "");
+    if (limpo.length !== 14) return;
+    try {
+      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${limpo}`);
+      const data = await res.json();
+      if (data.status === "ERROR") return;
+
+      const bairroEncontrado = (bairros ?? []).find(
+        b => b.nome.toLowerCase() === (data.bairro ?? "").toLowerCase()
+      );
+
+      // BrasilAPI field names
+      const logradouro = data.logradouro_tipo
+        ? `${data.logradouro_tipo} ${data.logradouro}`
+        : (data.logradouro ?? "");
+      const numero = data.numero ?? "";
+      const enderecoFull = logradouro && numero ? `${logradouro}, ${numero}` : logradouro;
+      const cepRaw = data.cep ?? "";
+      const cepFmt = cepRaw.replace(/\D/g, "").replace(/(\d{5})(\d{3})/, "$1-$2");
+      const bairroApi = data.bairro ?? "";
+
+      const bairroEncontrado2 = (bairros ?? []).find(
+        b => b.nome.toLowerCase() === bairroApi.toLowerCase()
+      );
+
+      setForm(f => ({
+        ...f,
+        razaoSocial: data.razao_social ?? data.nome ?? f.razaoSocial,
+        endereco:    capitalize(enderecoFull) || f.endereco,
+        cep:         cepFmt || f.cep,
+        bairro:      bairroEncontrado2 ? bairroEncontrado2.nome : capitalize(bairroApi) || f.bairro,
+      }));
+
+      if (bairroApi && !bairroEncontrado2) {
+        if (window.confirm(`Bairro "${bairroApi}" não está cadastrado. Deseja cadastrá-lo?`)) {
+          await api.bairros.criar(bairroApi);
+          refetchBairros();
+          setForm(f => ({ ...f, bairro: bairroApi }));
+        }
+      }
+    } catch { /* silencioso */ }
+  }
+
   async function handleCreate(e) {
     e.preventDefault();
     setSaving(true);
     try {
       await api.clientes.criar(form);
       setShowModal(false);
-      setForm({ tipo: "CPF", nome: "", documento: "", endereco: "", bairro: "", telefone: "", razaoSocial: "", pontoReferencia: "" });
+      setForm({ tipo: "CPF", nome: "", documento: "", endereco: "", bairro: "", cep: "", telefone: "", razaoSocial: "", pontoReferencia: "" });
       refetch();
     } catch (err) {
       alert("Erro ao criar cliente: " + err.message);
@@ -994,7 +1112,10 @@ function ClientesPage() {
         <div className="form-row">
           <div className="form-group">
             <label>Nome completo</label>
-            <input className="form-input" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Ex: João da Silva" required />
+            <input className="form-input" value={form.nome} onChange={(e) => { setForm({ ...form, nome: e.target.value }); checkDuplicates("nome", e.target.value); }} placeholder="Ex: João da Silva" required />
+            {dupWarnings.nome && (
+              <div style={{ fontSize: 11, color: "var(--amber)", marginTop: 4, fontWeight: 600 }}>⚠ {dupWarnings.nome}</div>
+            )}
           </div>
           <div className="form-group">
             <label>Tipo</label>
@@ -1004,16 +1125,60 @@ function ClientesPage() {
             </select>
           </div>
         </div>
-        <div className="form-row">
+        {form.tipo === "CNPJ" && (
           <div className="form-group">
-            <label>CPF / CNPJ</label>
-            <input className="form-input" value={form.documento} onChange={(e) => setForm({ ...form, documento: e.target.value })} placeholder="000.000.000-00" />
+            <label>Razão Social</label>
+            <input className="form-input" value={form.razaoSocial} onChange={(e) => setForm({ ...form, razaoSocial: e.target.value })} placeholder="Ex: Empresa Ltda." />
           </div>
-          <div className="form-group">
-            <label>Telefone</label>
-            <input className="form-input" value={form.telefone} onChange={(e) => setForm({ ...form, telefone: e.target.value })} placeholder="(11) 99999-0000" />
-          </div>
-        </div>
+        )}
+        {(() => {
+          const docStatus = getFieldStatus(form.documento, form.tipo === "CPF" ? validarCPF : validarCNPJ);
+          return (
+            <div className="form-group">
+              <label style={{ display: "flex", justifyContent: "space-between" }}>
+                CPF / CNPJ
+                {docStatus === "valid" && <span style={{ color: "var(--green)", fontWeight: 700, fontSize: 10 }}>✓ Válido</span>}
+                {docStatus === "invalid" && <span style={{ color: "var(--error)", fontWeight: 700, fontSize: 10 }}>✗ Inválido</span>}
+              </label>
+              <input
+                className="form-input"
+                style={{ borderColor: docStatus === "valid" ? "var(--green)" : docStatus === "invalid" ? "var(--error)" : undefined }}
+                value={form.documento}
+                onChange={(e) => {
+                  setForm({ ...form, documento: e.target.value });
+                  checkDuplicates("documento", e.target.value);
+                  if (form.tipo === "CNPJ") buscarCNPJ(e.target.value);
+                }}
+                placeholder={form.tipo === "CPF" ? "000.000.000-00" : "00.000.000/0001-00"}
+              />
+              {dupWarnings.documento && (
+                <div style={{ fontSize: 11, color: "var(--error)", marginTop: 4, fontWeight: 600 }}>
+                  ⚠ {dupWarnings.documento}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+        {(() => {
+          const cepStatus = getFieldStatus(form.cep, validarCEP);
+          return (
+            <div className="form-group">
+              <label style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>CEP <span style={{ color: "var(--text-muted)", fontWeight: 400, textTransform: "none" }}>(opcional)</span></span>
+                {cepStatus === "valid" && <span style={{ color: "var(--green)", fontWeight: 700, fontSize: 10 }}>✓ Válido</span>}
+                {cepStatus === "invalid" && <span style={{ color: "var(--error)", fontWeight: 700, fontSize: 10 }}>✗ Inválido</span>}
+              </label>
+              <input
+                className="form-input"
+                style={{ borderColor: cepStatus === "valid" ? "var(--green)" : cepStatus === "invalid" ? "var(--error)" : undefined }}
+                value={form.cep}
+                onChange={(e) => { setForm({ ...form, cep: e.target.value }); buscarCep(e.target.value); }}
+                placeholder="00000-000"
+                maxLength={9}
+              />
+            </div>
+          );
+        })()}
         <div className="form-group">
           <label>Endereço</label>
           <input className="form-input" value={form.endereco} onChange={(e) => setForm({ ...form, endereco: e.target.value })} placeholder="Rua, número" />
@@ -1027,12 +1192,28 @@ function ClientesPage() {
             ))}
           </select>
         </div>
-        {form.tipo === "CNPJ" && (
-          <div className="form-group">
-            <label>Razão Social</label>
-            <input className="form-input" value={form.razaoSocial} onChange={(e) => setForm({ ...form, razaoSocial: e.target.value })} placeholder="Ex: Empresa Ltda." />
-          </div>
-        )}
+        {(() => {
+          const telStatus = getFieldStatus(form.telefone, validarTelefone);
+          return (
+            <div className="form-group">
+              <label style={{ display: "flex", justifyContent: "space-between" }}>
+                Telefone
+                {telStatus === "valid" && <span style={{ color: "var(--green)", fontWeight: 700, fontSize: 10 }}>✓ Válido</span>}
+                {telStatus === "invalid" && <span style={{ color: "var(--error)", fontWeight: 700, fontSize: 10 }}>✗ Inválido</span>}
+              </label>
+              <input
+                className="form-input"
+                style={{ borderColor: telStatus === "valid" ? "var(--green)" : telStatus === "invalid" ? "var(--error)" : undefined }}
+                value={form.telefone}
+                onChange={(e) => { setForm({ ...form, telefone: e.target.value }); checkDuplicates("telefone", e.target.value); }}
+                placeholder="(11) 99999-0000"
+              />
+              {dupWarnings.telefone && (
+                <div style={{ fontSize: 11, color: "var(--amber)", marginTop: 4, fontWeight: 600 }}>⚠ {dupWarnings.telefone}</div>
+              )}
+            </div>
+          );
+        })()}
         <div className="form-group">
           <label>Ponto de Referência <span style={{ color: "var(--text-muted)", fontWeight: 400, textTransform: "none" }}>(opcional)</span></label>
           <input className="form-input" value={form.pontoReferencia} onChange={(e) => setForm({ ...form, pontoReferencia: e.target.value })} placeholder="Ex: próximo ao mercado" />
@@ -1075,6 +1256,7 @@ function ClientesPage() {
                 { label: "ID", value: `#${selectedCliente.id}` },
                 { label: "Documento", value: selectedCliente.documento ?? "—" },
                 { label: "Telefone", value: selectedCliente.telefone ?? "—" },
+                { label: "CEP", value: selectedCliente.cep ?? "—" },
                 { label: "Bairro", value: selectedCliente.bairro ?? "—" },
                 { label: "Endereço", value: selectedCliente.endereco ?? "—", full: true },
                 { label: "Ponto de Referência", value: selectedCliente.pontoReferencia ?? "—", full: true },
@@ -1234,17 +1416,23 @@ function PedidosPage() {
   const [showModal, setShowModal] = useState(false);
   const [selectedPedido, setSelectedPedido] = useState(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ clienteId: "", produto: "GARRAFAO_REPOSICAO", quantidade: 1 });
+  const [form, setForm] = useState({ clienteId: "", itens: [{ produto: "GARRAFAO_REPOSICAO", quantidade: 1 }] });
   const [page, setPage] = useState(1);
   const PER_PAGE = 8;
 
   const PRODUTOS = [
-    { val: "GARRAFAO_COMPLETO", label: "Garrafão 20L (completo)" },
-    { val: "GARRAFAO_REPOSICAO", label: "Garrafão 20L (reposição)" },
-    { val: "PACOTE_BABY", label: "Pacote Baby 300ml" },
-    { val: "PACOTE_COPINHO", label: "Pacote Copinho 200ml" },
-    { val: "PACOTE_500ML_COM_GAS", label: "Pacote 500ml c/ Gás" },
-    { val: "PACOTE_500ML_SEM_GAS", label: "Pacote 500ml s/ Gás" },
+    { val: "GARRAFAO_REPOSICAO", label: "Garrafão 20L Reposição" },
+    { val: "GARRAFAO_COMPLETO",  label: "Garrafão 20L Completo"  },
+    { val: "GARRAFAO_VAZIO",     label: "Garrafão 20L Vazio"     },
+    { val: "BABY_200ML",         label: "Baby 200ml"             },
+    { val: "COPO_200ML",         label: "200ml Copo"             },
+    { val: "COPO_300ML",         label: "300ml Copo"             },
+    { val: "SEM_GAS_330ML",      label: "330ml sem Gás"          },
+    { val: "COM_GAS_330ML",      label: "330ml com Gás"          },
+    { val: "SEM_GAS_500ML",      label: "500ml sem Gás"          },
+    { val: "COM_GAS_500ML",      label: "500ml com Gás"          },
+    { val: "ML_1500",            label: "1.500ml"                },
+    { val: "LITROS_5",           label: "5 Litros"               },
   ];
 
   const filtered = (pedidos ?? []).filter((p) => {
@@ -1259,23 +1447,129 @@ function PedidosPage() {
 
   const totalValor = filtered.reduce((acc, p) => acc + (p.valorTotal ?? 0), 0);
 
+  function checkDuplicates(field, value) {
+    if (!value || !data) return;
+    const clientes = data ?? [];
+    let warning = null;
+    if (field === "documento") {
+      const found = clientes.find(c => c.documento?.replace(/\D/g,"") === value.replace(/\D/g,""));
+      if (found) warning = `Documento já cadastrado para ${found.nome}`;
+    } else if (field === "telefone") {
+      const found = clientes.find(c => c.telefone?.replace(/\D/g,"") === value.replace(/\D/g,""));
+      if (found) warning = `Telefone já cadastrado para ${found.nome}`;
+    } else if (field === "nome") {
+      const found = clientes.find(c => c.nome?.toLowerCase() === value.toLowerCase());
+      if (found) warning = `Nome já cadastrado (ID #${found.id})`;
+    }
+    setDupWarnings(prev => ({ ...prev, [field]: warning }));
+  }
+
+  async function buscarCep(cep) {
+    const limpo = cep.replace(/\D/g, "");
+    if (limpo.length !== 8) return;
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${limpo}/json/`);
+      const data = await res.json();
+      if (data.erro) return;
+
+      const bairroEncontrado = (bairros ?? []).find(
+        b => b.nome.toLowerCase() === (data.bairro ?? "").toLowerCase()
+      );
+
+      setForm(f => ({
+        ...f,
+        endereco: capitalize(data.logradouro) ?? f.endereco,
+        bairro: bairroEncontrado ? bairroEncontrado.nome : f.bairro,
+      }));
+
+      if (data.bairro && !bairroEncontrado) {
+        if (window.confirm(`Bairro "${data.bairro}" não está cadastrado. Deseja cadastrá-lo?`)) {
+          await api.bairros.criar(data.bairro);
+          refetchBairros();
+          setForm(f => ({ ...f, bairro: data.bairro }));
+        }
+      }
+    } catch { /* silencioso */ }
+  }
+
+  async function buscarCNPJ(cnpj) {
+    const limpo = cnpj.replace(/\D/g, "");
+    if (limpo.length !== 14) return;
+    try {
+      const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${limpo}`);
+      const data = await res.json();
+      if (data.status === "ERROR") return;
+
+      const bairroEncontrado = (bairros ?? []).find(
+        b => b.nome.toLowerCase() === (data.bairro ?? "").toLowerCase()
+      );
+
+      // BrasilAPI field names
+      const logradouro = data.logradouro_tipo
+        ? `${data.logradouro_tipo} ${data.logradouro}`
+        : (data.logradouro ?? "");
+      const numero = data.numero ?? "";
+      const enderecoFull = logradouro && numero ? `${logradouro}, ${numero}` : logradouro;
+      const cepRaw = data.cep ?? "";
+      const cepFmt = cepRaw.replace(/\D/g, "").replace(/(\d{5})(\d{3})/, "$1-$2");
+      const bairroApi = data.bairro ?? "";
+
+      const bairroEncontrado2 = (bairros ?? []).find(
+        b => b.nome.toLowerCase() === bairroApi.toLowerCase()
+      );
+
+      setForm(f => ({
+        ...f,
+        razaoSocial: data.razao_social ?? data.nome ?? f.razaoSocial,
+        endereco:    capitalize(enderecoFull) || f.endereco,
+        cep:         cepFmt || f.cep,
+        bairro:      bairroEncontrado2 ? bairroEncontrado2.nome : capitalize(bairroApi) || f.bairro,
+      }));
+
+      if (bairroApi && !bairroEncontrado2) {
+        if (window.confirm(`Bairro "${bairroApi}" não está cadastrado. Deseja cadastrá-lo?`)) {
+          await api.bairros.criar(bairroApi);
+          refetchBairros();
+          setForm(f => ({ ...f, bairro: bairroApi }));
+        }
+      }
+    } catch { /* silencioso */ }
+  }
+
   async function handleCreate(e) {
     e.preventDefault();
     if (!form.clienteId) { alert("Selecione um cliente."); return; }
+    if (form.itens.length === 0) { alert("Adicione pelo menos um produto."); return; }
     setSaving(true);
     try {
       await api.pedidos.criar({
         clienteId: Number(form.clienteId),
-        itens: [{ produto: form.produto, quantidade: Number(form.quantidade) }],
+        itens: form.itens.map(i => ({ produto: i.produto, quantidade: Number(i.quantidade) })),
       });
       setShowModal(false);
-      setForm({ clienteId: "", produto: "GARRAFAO_REPOSICAO", quantidade: 1 });
+      setForm({ clienteId: "", itens: [{ produto: "GARRAFAO_REPOSICAO", quantidade: 1 }] });
       refetch();
     } catch (err) {
       alert("Erro ao criar pedido: " + err.message);
     } finally {
       setSaving(false);
     }
+  }
+
+  function addItem() {
+    setForm(f => ({ ...f, itens: [...f.itens, { produto: "GARRAFAO_REPOSICAO", quantidade: 1 }] }));
+  }
+
+  function removeItem(idx) {
+    setForm(f => ({ ...f, itens: f.itens.filter((_, i) => i !== idx) }));
+  }
+
+  function updateItem(idx, field, value) {
+    setForm(f => {
+      const itens = [...f.itens];
+      itens[idx] = { ...itens[idx], [field]: value };
+      return { ...f, itens };
+    });
   }
 
   async function handleStatus(id, status) {
@@ -1371,7 +1665,9 @@ function PedidosPage() {
                               </button>
                             </>
                           )}
-                          <button className="icon-btn"><Icon name="more_vert" className="sm" /></button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => setSelectedPedido(p)}>
+                            <Icon name="info" className="sm" /> Detalhes
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1421,7 +1717,7 @@ function PedidosPage() {
 
       <Modal
         open={showModal}
-        onClose={() => setShowModal(false)}
+        onClose={() => { setShowModal(false); setForm({ clienteId: "", itens: [{ produto: "GARRAFAO_REPOSICAO", quantidade: 1 }] }); }}
         title="Novo Pedido"
         footer={
           <>
@@ -1436,16 +1732,44 @@ function PedidosPage() {
           value={form.clienteId}
           onSelect={(c) => setForm({ ...form, clienteId: c.id })}
         />
-        <div className="form-row">
-          <div className="form-group">
-            <label>Produto</label>
-            <select className="form-input" value={form.produto} onChange={(e) => setForm({ ...form, produto: e.target.value })}>
-              {PRODUTOS.map((p) => <option key={p.val} value={p.val}>{p.label}</option>)}
-            </select>
+        <div className="form-group">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <label style={{ margin: 0 }}>Produtos</label>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={addItem}>
+              <Icon name="add" className="sm" /> Adicionar item
+            </button>
           </div>
-          <div className="form-group">
-            <label>Quantidade</label>
-            <input className="form-input" type="number" min="1" value={form.quantidade} onChange={(e) => setForm({ ...form, quantidade: e.target.value })} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {form.itens.map((item, idx) => (
+              <div key={idx} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <select
+                  className="form-input"
+                  style={{ flex: 2 }}
+                  value={item.produto}
+                  onChange={(e) => updateItem(idx, "produto", e.target.value)}
+                >
+                  {PRODUTOS.map((p) => <option key={p.val} value={p.val}>{p.label}</option>)}
+                </select>
+                <input
+                  className="form-input"
+                  style={{ flex: 1, minWidth: 60 }}
+                  type="number"
+                  min="1"
+                  value={item.quantidade}
+                  onChange={(e) => updateItem(idx, "quantidade", e.target.value)}
+                />
+                {form.itens.length > 1 && (
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    style={{ color: "var(--error)", flexShrink: 0 }}
+                    onClick={() => removeItem(idx)}
+                  >
+                    <Icon name="delete" className="sm" />
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       </Modal>
@@ -1987,7 +2311,7 @@ ${pedidos.map((p, idx) => `
                   {selectedRoteiro.pedidos?.map((p, i) => (
                     <div key={p.numeroPedido} style={{ display: "flex", alignItems: "flex-start", gap: 10, paddingBottom: 10, borderBottom: "1px solid var(--surface-low)" }}>
                       <div style={{ width: 22, height: 22, borderRadius: "50%", background: i === 0 ? "var(--green)" : "var(--primary)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>
-                        {i === 0 ? <Icon name="check" style={{ fontSize: 12 }} /> : i + 1}
+                        {i + 1}
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2337,11 +2661,17 @@ function getBairroColor(bairro) {
 
 // ─── ESTOQUE PAGE ─────────────────────────────────────────────────────────────
 const PRODUTO_LABELS = {
-  GARRAFAO_REPOSICAO:   { label: "Garrafão 20L",               icon: "water_drop", min: 20 },
-  PACOTE_BABY:          { label: "Pacote Baby 300ml",          icon: "water",      min: 10 },
-  PACOTE_COPINHO:       { label: "Pacote Copinho 200ml",       icon: "water",      min: 10 },
-  PACOTE_500ML_COM_GAS: { label: "Pacote 500ml c/ Gás",        icon: "bubble_chart", min: 8 },
-  PACOTE_500ML_SEM_GAS: { label: "Pacote 500ml s/ Gás",        icon: "bubble_chart", min: 8 },
+  GARRAFAO_REPOSICAO: { label: "Garrafão 20L",         icon: "water_drop",    min: 20 },
+  GARRAFAO_VAZIO:     { label: "Garrafão 20L Vazio",   icon: "water_drop",    min: 10 },
+  BABY_200ML:         { label: "Baby 200ml",            icon: "water",         min: 10 },
+  COPO_200ML:         { label: "200ml Copo",            icon: "water",         min: 10 },
+  COPO_300ML:         { label: "300ml Copo",            icon: "water",         min: 10 },
+  SEM_GAS_330ML:      { label: "330ml sem Gás",         icon: "bubble_chart",  min: 8  },
+  COM_GAS_330ML:      { label: "330ml com Gás",         icon: "bubble_chart",  min: 8  },
+  SEM_GAS_500ML:      { label: "500ml sem Gás",         icon: "bubble_chart",  min: 8  },
+  COM_GAS_500ML:      { label: "500ml com Gás",         icon: "bubble_chart",  min: 8  },
+  ML_1500:            { label: "1.500ml",               icon: "water",         min: 8  },
+  LITROS_5:           { label: "5 Litros",              icon: "water",         min: 5  },
 };
 
 function getStockStatus(quantidade, min) {

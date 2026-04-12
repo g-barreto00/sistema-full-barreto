@@ -45,11 +45,16 @@ public class DataInitializer implements CommandLineRunner {
         bairroRepository.save(new Bairro("Federação"));
 
         // ── Estoque inicial ───────────────────────────────────────────────────
-        estoqueService.inicializar(Produto.GARRAFAO_REPOSICAO,   60);
-        estoqueService.inicializar(Produto.PACOTE_BABY,          30);
-        estoqueService.inicializar(Produto.PACOTE_COPINHO,       40);
-        estoqueService.inicializar(Produto.PACOTE_500ML_COM_GAS, 25);
-        estoqueService.inicializar(Produto.PACOTE_500ML_SEM_GAS, 25);
+        estoqueService.inicializar(Produto.GARRAFAO_REPOSICAO, 60);
+        estoqueService.inicializar(Produto.BABY_200ML,         30);
+        estoqueService.inicializar(Produto.COPO_200ML,         40);
+        estoqueService.inicializar(Produto.COPO_300ML,         20);
+        estoqueService.inicializar(Produto.SEM_GAS_330ML,      25);
+        estoqueService.inicializar(Produto.COM_GAS_330ML,      25);
+        estoqueService.inicializar(Produto.SEM_GAS_500ML,      25);
+        estoqueService.inicializar(Produto.COM_GAS_500ML,      25);
+        estoqueService.inicializar(Produto.ML_1500,            20);
+        estoqueService.inicializar(Produto.LITROS_5,           15);
 
         // ── Clientes de teste ─────────────────────────────────────────────────
         Cliente c1 = clienteService.cadastrar(
@@ -65,7 +70,7 @@ public class DataInitializer implements CommandLineRunner {
         // ── Pedidos de teste ──────────────────────────────────────────────────
         Pedido p1 = pedidoService.emitirPedido(c1, List.of(
                 new ItemPedido(Produto.GARRAFAO_REPOSICAO, 3),
-                new ItemPedido(Produto.PACOTE_COPINHO, 2)));
+                new ItemPedido(Produto.COPO_200ML, 2)));
         if (p1 != null) pedidoService.alterarStatus(p1, StatusPedido.ENTREGUE);
 
         Pedido p2 = pedidoService.emitirPedido(c2, List.of(
@@ -73,10 +78,11 @@ public class DataInitializer implements CommandLineRunner {
         if (p2 != null) pedidoService.alterarStatus(p2, StatusPedido.ENTREGUE);
 
         pedidoService.emitirPedido(c3, List.of(
-                new ItemPedido(Produto.PACOTE_500ML_SEM_GAS, 4)));
+                new ItemPedido(Produto.SEM_GAS_500ML, 4)));
 
         Pedido p4 = pedidoService.emitirPedido(c4, List.of(
-                new ItemPedido(Produto.GARRAFAO_REPOSICAO, 10)));
+                new ItemPedido(Produto.GARRAFAO_REPOSICAO, 10),
+                new ItemPedido(Produto.COM_GAS_500ML, 5)));
         if (p4 != null) pedidoService.alterarStatus(p4, StatusPedido.ENTREGUE);
 
         // ── Caminhão e roteiro de exemplo ─────────────────────────────────────
