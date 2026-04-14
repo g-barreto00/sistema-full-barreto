@@ -747,7 +747,7 @@ function ClientesPage() {
   const [savingBairro, setSavingBairro] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dupWarnings, setDupWarnings] = useState({});
-  const [form, setForm] = useState({ tipo: "CPF", nome: "", documento: "", endereco: "", bairro: "", cep: "", telefone: "", razaoSocial: "", pontoReferencia: "" });
+  const [form, setForm] = useState({ tipo: "CPF", nome: "", documento: "", endereco: "", bairro: "", cep: "", telefone: "", razaoSocial: "", responsavelPedidos: "", pontoReferencia: "" });
 
   const PER_PAGE = 10;
 
@@ -870,11 +870,21 @@ function ClientesPage() {
 
   async function handleCreate(e) {
     e.preventDefault();
+    if (!form.nome?.trim()) { alert("Nome é obrigatório."); return; }
+    if (!form.endereco?.trim()) { alert("Endereço é obrigatório."); return; }
+    if (!form.bairro?.trim()) { alert("Bairro é obrigatório."); return; }
+    if (!form.telefone?.trim()) { alert("Telefone é obrigatório."); return; }
+    if (!form.cep?.trim()) { alert("CEP é obrigatório."); return; }
+    if (form.tipo === "CNPJ") {
+      if (!form.documento?.trim()) { alert("CNPJ é obrigatório."); return; }
+      if (!form.razaoSocial?.trim()) { alert("Razão Social é obrigatória."); return; }
+      if (!form.responsavelPedidos?.trim()) { alert("Responsável por pedidos é obrigatório."); return; }
+    }
     setSaving(true);
     try {
       await api.clientes.criar(form);
       setShowModal(false);
-      setForm({ tipo: "CPF", nome: "", documento: "", endereco: "", bairro: "", cep: "", telefone: "", razaoSocial: "", pontoReferencia: "" });
+      setForm({ tipo: "CPF", nome: "", documento: "", endereco: "", bairro: "", cep: "", telefone: "", razaoSocial: "", responsavelPedidos: "", pontoReferencia: "" });
       refetch();
     } catch (err) {
       alert("Erro ao criar cliente: " + err.message);
@@ -1112,7 +1122,7 @@ function ClientesPage() {
         <div className="form-row">
           <div className="form-group">
             <label>Nome completo</label>
-            <input className="form-input" value={form.nome} onChange={(e) => { setForm({ ...form, nome: e.target.value }); checkDuplicates("nome", e.target.value); }} placeholder="Ex: João da Silva" required />
+<input className="form-input" value={form.nome} onChange={(e) => { setForm({ ...form, nome: e.target.value }); checkDuplicates("nome", e.target.value); }} placeholder="Ex: João da Silva" required />
             {dupWarnings.nome && (
               <div style={{ fontSize: 11, color: "var(--amber)", marginTop: 4, fontWeight: 600 }}>⚠ {dupWarnings.nome}</div>
             )}
@@ -1126,10 +1136,16 @@ function ClientesPage() {
           </div>
         </div>
         {form.tipo === "CNPJ" && (
-          <div className="form-group">
-            <label>Razão Social</label>
-            <input className="form-input" value={form.razaoSocial} onChange={(e) => setForm({ ...form, razaoSocial: e.target.value })} placeholder="Ex: Empresa Ltda." />
-          </div>
+          <>
+            <div className="form-group">
+              <label>Razão Social <span style={{ color: "var(--error)" }}>*</span></label>
+              <input className="form-input" value={form.razaoSocial} onChange={(e) => setForm({ ...form, razaoSocial: e.target.value })} placeholder="Ex: Empresa Ltda." required />
+            </div>
+            <div className="form-group">
+              <label>Responsável por Pedidos <span style={{ color: "var(--error)" }}>*</span></label>
+              <input className="form-input" value={form.responsavelPedidos} onChange={(e) => setForm({ ...form, responsavelPedidos: e.target.value })} placeholder="Ex: João da Silva" required />
+            </div>
+          </>
         )}
         {(() => {
           const docStatus = getFieldStatus(form.documento, form.tipo === "CPF" ? validarCPF : validarCNPJ);
@@ -1256,12 +1272,15 @@ function ClientesPage() {
                 { label: "ID", value: `#${selectedCliente.id}` },
                 { label: "Documento", value: selectedCliente.documento ?? "—" },
                 { label: "Telefone", value: selectedCliente.telefone ?? "—" },
-                { label: "CEP", value: selectedCliente.cep ?? "—" },
                 { label: "Bairro", value: selectedCliente.bairro ?? "—" },
+                { label: "CEP", value: selectedCliente.cep ?? "—" },
                 { label: "Endereço", value: selectedCliente.endereco ?? "—", full: true },
                 { label: "Ponto de Referência", value: selectedCliente.pontoReferencia ?? "—", full: true },
                 ...(selectedCliente.tipoCliente === "CNPJ"
-                  ? [{ label: "Razão Social", value: selectedCliente.razaoSocial ?? "—", full: true }]
+                  ? [
+                      { label: "Razão Social", value: selectedCliente.razaoSocial ?? "—", full: true },
+                      { label: "Responsável por Pedidos", value: selectedCliente.responsavelPedidos ?? "—", full: true },
+                    ]
                   : []),
               ].map((f) => (
                 <div key={f.label} style={{ gridColumn: f.full ? "1 / -1" : undefined }}>
@@ -1270,6 +1289,9 @@ function ClientesPage() {
                 </div>
               ))}
             </div>
+
+            {/* Pedidos do cliente */}
+            <ClientePedidos clienteId={selectedCliente.id} />
 
             {/* Actions */}
             <div style={{ display: "flex", gap: 10, marginTop: 24, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
@@ -1283,6 +1305,157 @@ function ClientesPage() {
               >
                 {selectedCliente.ativo !== false ? "Desativar cliente" : "Reativar cliente"}
               </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+// ─── ClientePedidos ──────────────────────────────────────────────────────────
+function ClientePedidos({ clienteId }) {
+  const { data: pedidos, loading } = useFetch(() => api.pedidos.listar(), [clienteId]);
+  const [selectedPedido, setSelectedPedido] = useState(null);
+
+  const clientePedidos = (pedidos ?? [])
+    .filter(p => p.cliente?.id === clienteId)
+    .sort((a, b) => b.numeroPedido - a.numeroPedido);
+
+  const total = clientePedidos.reduce((acc, p) => acc + (p.valorTotal ?? 0), 0);
+  const entregues = clientePedidos.filter(p => p.status === "ENTREGUE").length;
+  const pendentes = clientePedidos.filter(p => p.status === "PENDENTE").length;
+
+  return (
+    <div style={{ marginTop: 24, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+      <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 12 }}>
+        Histórico de Pedidos
+      </div>
+
+      {loading ? (
+        <div style={{ padding: "12px 0", textAlign: "center" }}><div className="spinner" style={{ width: 20, height: 20, borderWidth: 2, margin: "0 auto" }} /></div>
+      ) : clientePedidos.length === 0 ? (
+        <div style={{ padding: "16px", textAlign: "center", color: "var(--text-muted)", fontSize: 13, background: "var(--surface-low)", borderRadius: "var(--radius-sm)" }}>
+          Nenhum pedido encontrado.
+        </div>
+      ) : (
+        <>
+          {/* KPIs */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 }}>
+            {[
+              { label: "Total", value: clientePedidos.length, color: "var(--primary)" },
+              { label: "Entregues", value: entregues, color: "var(--green)" },
+              { label: "Pendentes", value: pendentes, color: "var(--amber)" },
+            ].map(s => (
+              <div key={s.label} style={{ background: "var(--surface-low)", borderRadius: "var(--radius-sm)", padding: "10px 12px", textAlign: "center" }}>
+                <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>{s.label}</div>
+                <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "Manrope", color: s.color }}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Lista */}
+          <div style={{ maxHeight: 220, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+            {clientePedidos.map(p => {
+              const st = STATUS_MAP[p.status] ?? { label: p.status, variant: "gray" };
+              return (
+                <div key={p.numeroPedido} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "10px 12px", background: "var(--surface-low)",
+                  borderRadius: "var(--radius-sm)", border: "1px solid var(--border)"
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontWeight: 700, color: "var(--primary)", fontSize: 12 }}>
+                      #ORD-{String(p.numeroPedido).padStart(4, "0")}
+                    </span>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{formatDate(p.dataPedido)}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontWeight: 700, fontSize: 12, fontFamily: "Manrope" }}>
+                      R$ {(p.valorTotal ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </span>
+                    <Badge variant={st.variant}>{st.label}</Badge>
+                    <button className="btn btn-ghost btn-sm" style={{ padding: "3px 8px" }} onClick={() => setSelectedPedido(p)}>
+                      <Icon name="info" className="sm" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Total gasto */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, padding: "10px 12px", background: "var(--primary-light)", borderRadius: "var(--radius-sm)" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--primary)" }}>Total gasto (entregues)</span>
+            <span style={{ fontSize: 15, fontWeight: 800, fontFamily: "Manrope", color: "var(--primary)" }}>
+              R$ {clientePedidos.filter(p => p.status === "ENTREGUE").reduce((acc, p) => acc + (p.valorTotal ?? 0), 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+        </>
+      )}
+
+      {/* Pedido Detail Modal */}
+      <Modal
+        open={!!selectedPedido}
+        onClose={() => setSelectedPedido(null)}
+        title="Detalhes do Pedido"
+        footer={<button className="btn btn-ghost btn-sm" onClick={() => setSelectedPedido(null)}>Fechar</button>}
+      >
+        {selectedPedido && (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", background: "var(--surface-low)", borderRadius: "var(--radius-sm)", marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.08em" }}>ID do Pedido</div>
+                <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "Manrope", color: "var(--primary)" }}>
+                  #ORD-{String(selectedPedido.numeroPedido).padStart(4, "0")}
+                </div>
+              </div>
+              <Badge variant={(STATUS_MAP[selectedPedido.status] ?? { variant: "gray" }).variant}>
+                {(STATUS_MAP[selectedPedido.status] ?? { label: selectedPedido.status }).label}
+              </Badge>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)", marginBottom: 8 }}>Itens do Pedido</div>
+              <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+                {(selectedPedido.itens ?? []).length === 0 ? (
+                  <div style={{ padding: "16px", textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Nenhum item</div>
+                ) : (
+                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                    <thead>
+                      <tr style={{ background: "var(--surface-low)", borderBottom: "1px solid var(--border)" }}>
+                        <th style={{ padding: "8px 14px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: "var(--text-muted)", textAlign: "left" }}>Produto</th>
+                        <th style={{ padding: "8px 14px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: "var(--text-muted)", textAlign: "center" }}>Qtd</th>
+                        <th style={{ padding: "8px 14px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: "var(--text-muted)", textAlign: "right" }}>Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(selectedPedido.itens ?? []).map((item, i) => (
+                        <tr key={i} style={{ borderBottom: "1px solid var(--surface-low)" }}>
+                          <td style={{ padding: "10px 14px", fontSize: 13 }}>{item.produto ?? "—"}</td>
+                          <td style={{ padding: "10px 14px", fontSize: 13, textAlign: "center", fontWeight: 600 }}>{item.quantidade}</td>
+                          <td style={{ padding: "10px 14px", fontSize: 13, textAlign: "right", fontWeight: 700, fontFamily: "Manrope" }}>
+                            R$ {(item.subtotal ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+              {[
+                { label: "Valor Total", value: `R$ ${(selectedPedido.valorTotal ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`, color: "var(--primary)" },
+                { label: "Bairro", value: selectedPedido.cliente?.bairro ?? "—", color: "var(--text)" },
+                { label: "Data", value: formatDate(selectedPedido.dataPedido), color: "var(--text)" },
+              ].map((s) => (
+                <div key={s.label} style={{ background: "var(--surface-low)", borderRadius: "var(--radius-sm)", padding: "12px" }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>{s.label}</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, fontFamily: "Manrope", color: s.color }}>{s.value}</div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -1445,7 +1618,7 @@ function PedidosPage() {
   const pages = Math.ceil(total / PER_PAGE);
   const slice = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
-  const totalValor = filtered.reduce((acc, p) => acc + (p.valorTotal ?? 0), 0);
+  const totalValor = filtered.filter(p => p.status !== "CANCELADO").reduce((acc, p) => acc + (p.valorTotal ?? 0), 0);
 
   function checkDuplicates(field, value) {
     if (!value || !data) return;
@@ -1998,6 +2171,11 @@ function RoteirosPage() {
   body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; padding: 24px; }
   h1 { font-size: 18px; font-weight: 800; color: #00629e; }
   h2 { font-size: 13px; font-weight: 700; color: #00629e; margin: 18px 0 8px; border-bottom: 2px solid #00629e; padding-bottom: 4px; }
+  .section-carga { background: #00629e; color: white; border-radius: 6px; padding: 10px 14px; margin: 18px 0 8px; display: flex; align-items: center; gap: 8px; }
+  .section-carga span { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+  .section-carga .badge-carga { background: rgba(255,255,255,0.2); padding: 2px 10px; border-radius: 999px; font-size: 10px; font-weight: 700; margin-left: auto; }
+  .section-pedidos { background: #f0f4f7; border-radius: 6px; padding: 10px 14px; margin: 18px 0 8px; border-left: 4px solid #00629e; }
+  .section-pedidos span { font-size: 13px; font-weight: 700; color: #00629e; text-transform: uppercase; letter-spacing: 0.04em; }
   h3 { font-size: 12px; font-weight: 700; margin-bottom: 4px; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #00629e; }
   .header-left p { font-size: 11px; color: #555; margin-top: 2px; }
@@ -2024,6 +2202,7 @@ function RoteirosPage() {
   .font-bold { font-weight: 700; }
   .color-primary { color: #00629e; }
   @media print { body { padding: 16px; } }
+  @page { size: A4; margin: 15mm; }
 </style>
 </head>
 <body>
@@ -2046,7 +2225,10 @@ function RoteirosPage() {
   <div class="meta-item"><label>Nº de Paradas</label><span>${pedidos.length}</span></div>
 </div>
 
-<h2>Lista de Carga</h2>
+<div class="section-carga">
+  <span>&#9632; Lista de Carga</span>
+  <span class="badge-carga">${Object.values(carga).reduce((a,i)=>a+i.quantidade,0)} unidades</span>
+</div>
 <table>
   <thead><tr><th>Produto</th><th class="text-right">Qtd Total</th><th class="text-right">Valor Total</th></tr></thead>
   <tbody>
@@ -2065,7 +2247,9 @@ function RoteirosPage() {
 </table>
 <p style="font-size:10px;color:#888;margin-bottom:2px">Peso total estimado: <strong>${pesoTotal.toFixed(1)} kg</strong> de <strong>${(roteiro.caminhao?.capacidadeMaximaKg??0).toLocaleString("pt-BR")} kg</strong> disponíveis</p>
 
-<h2>Pedidos por Cliente</h2>
+<div class="section-pedidos">
+  <span>Pedidos por Cliente &mdash; ${pedidos.length} paradas</span>
+</div>
 ${pedidos.map((p, idx) => `
 <div class="cliente-block">
   <div class="cliente-header">

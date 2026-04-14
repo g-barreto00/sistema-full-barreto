@@ -30,6 +30,8 @@ public class Cliente {
     private String      pontoReferencia;
     private String      telefone;
     private boolean     ativo;
+    private String      cep;
+    private String responsavelPedidos;
 
     @JsonIgnore
     @OneToMany(mappedBy = "cliente", fetch = FetchType.LAZY)
@@ -127,6 +129,10 @@ public class Cliente {
     public void        setTelefone(String v)  { this.telefone = v; }
     public boolean     isAtivo()              { return ativo; }
     public List<Pedido> getPedidos()          { return pedidos; }
+    public String        getCep() { return cep; }
+    public void         setCep(String cep) { this.cep = cep; }
+    public String getResponsavelPedidos()          { return responsavelPedidos; }
+    public void   setResponsavelPedidos(String v)  { this.responsavelPedidos = v; }
 
     @Override
     public String toString() {
