@@ -92,23 +92,6 @@ public class Cliente {
     public void desativar() { this.ativo = false; }
     public void reativar()  { this.ativo = true; }
 
-    // ── Exibir ────────────────────────────────────────────────────────────────
-
-    public void exibirDados() {
-        System.out.println("══════════════════════════════════════════");
-        System.out.println("  Nome     : " + nome + (ativo ? "" : " [INATIVO]"));
-        System.out.println("  Tipo     : " + tipoCliente.getDescricao());
-        System.out.println("  Doc.     : " + documento);
-        if (tipoCliente == TipoCliente.CNPJ)
-            System.out.println("  Razão    : " + razaoSocial);
-        System.out.println("  Endereço : " + endereco + " — " + bairro);
-        if (pontoReferencia != null && !pontoReferencia.isBlank())
-            System.out.println("  Ref.     : " + pontoReferencia);
-        System.out.println("  Telefone : " + telefone);
-        System.out.printf ("  Pedidos  : %d  |  Total gasto: R$ %.2f%n", pedidos.size(), totalGasto());
-        System.out.println("══════════════════════════════════════════");
-    }
-
     // ── Getters / Setters ─────────────────────────────────────────────────────
 
     public Long        getId()                { return id; }

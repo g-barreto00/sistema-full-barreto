@@ -11,20 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 
-/**
- * Centraliza a lógica de criação e cancelamento de pedidos.
- *
- * Fluxo de emissão:
- *   1. Verifica se o cliente está ativo
- *   2. Verifica se há estoque suficiente para todos os itens
- *   3. Cria o Pedido e adiciona os itens
- *   4. Baixa o estoque
- *   5. Persiste o pedido (cascata salva os ItemPedido)
- *
- * Fluxo de cancelamento:
- *   1. Tenta cancelar o pedido (só PENDENTE pode ser cancelado)
- *   2. Se cancelado, repõe o estoque e persiste
- */
 @Service
 public class PedidoService {
 
@@ -88,6 +74,13 @@ public class PedidoService {
                 + " atualizado para: " + novoStatus.getDescricao());
     }
 
+    // ── Persistência ──────────────────────────────────────────────────────────
+
+    @Transactional
+    public Pedido salvar(Pedido pedido) {
+        return pedidoRepository.save(pedido);
+    }
+
     // ── Consultas ─────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
@@ -103,10 +96,5 @@ public class PedidoService {
     @Transactional(readOnly = true)
     public List<Pedido> listarPorCliente(Cliente cliente) {
         return pedidoRepository.findByCliente(cliente);
-    }
-
-    @Transactional(readOnly = true)
-    public List<Pedido> getTodosPedidos() {
-        return pedidoRepository.findAll();
     }
 }

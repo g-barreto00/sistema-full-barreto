@@ -2,7 +2,6 @@ package distribuidora.controller;
 
 import distribuidora.enums.Produto;
 import distribuidora.model.Estoque;
-import distribuidora.repository.EstoqueRepository;
 import distribuidora.service.EstoqueService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,19 +13,16 @@ import java.util.Map;
 @RequestMapping("/api/estoque")
 public class EstoqueController {
 
-    private final EstoqueService    estoqueService;
-    private final EstoqueRepository estoqueRepository;
+    private final EstoqueService estoqueService;
 
-    public EstoqueController(EstoqueService estoqueService,
-                              EstoqueRepository estoqueRepository) {
-        this.estoqueService    = estoqueService;
-        this.estoqueRepository = estoqueRepository;
+    public EstoqueController(EstoqueService estoqueService) {
+        this.estoqueService = estoqueService;
     }
 
     /** GET /api/estoque */
     @GetMapping
     public List<Estoque> listar() {
-        return estoqueRepository.findAll();
+        return estoqueService.listar();
     }
 
     /**

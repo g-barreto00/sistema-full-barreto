@@ -29,7 +29,9 @@ public class Roteiro {
 
     private LocalDate data;
 
-    // Pedido é o dono da FK roteiro_id — esta é a face inversa
+    private boolean conferenciaConfirmada = false;
+    private int     horarioMinFinalizacaoHora = 17;
+
     @OneToMany(mappedBy = "roteiro", fetch = FetchType.LAZY)
     private List<Pedido> pedidos = new ArrayList<>();
 
@@ -94,42 +96,18 @@ public class Roteiro {
         return caminhao.getCapacidadeMaximaKg() - calcularPesoTotal();
     }
 
-    // ── Exibir ────────────────────────────────────────────────────────────────
+    // ── Getters / Setters ─────────────────────────────────────────────────────
 
-    public void exibirRoteiro() {
-        System.out.println("╔══════════════════════════════════════════════════╗");
-        System.out.printf ("  Roteiro #%d  —  %s%n", numeroRoteiro, data.format(FMT));
-        System.out.printf ("  Caminhão : %s  (%s)%n", caminhao.getPlaca(), caminhao.getMotorista());
-        System.out.printf ("  Capacidade: %.0f kg%n", caminhao.getCapacidadeMaximaKg());
-        System.out.println("──────────────────────────────────────────────────");
-
-        if (pedidos.isEmpty()) {
-            System.out.println("  (nenhum pedido alocado)");
-        } else {
-            pedidos.forEach(p -> System.out.printf(
-                "  Pedido #%d | %-20s | %5.1f kg | R$ %6.2f%n",
-                p.getNumeroPedido(), p.getCliente().getNome(),
-                p.getPesoTotal(), p.getValorTotal()));
-        }
-
-        System.out.println("──────────────────────────────────────────────────");
-        System.out.printf ("  Peso total    : %6.1f / %.0f kg  (disponível: %.1f kg)%n",
-                calcularPesoTotal(), caminhao.getCapacidadeMaximaKg(), calcularCapacidadeDisponivel());
-        System.out.printf ("  Valor total   : R$ %.2f%n", calcularValorTotal());
-        System.out.printf ("  Total pedidos : %d%n", pedidos.size());
-        System.out.println("╚══════════════════════════════════════════════════╝");
-    }
-
-    public void setStatus(StatusRoteiro status) { this.status = status; }
-
-    // ── Getters ───────────────────────────────────────────────────────────────
-
-    public Long          getNumeroRoteiro() { return numeroRoteiro; }
-    public Caminhao      getCaminhao()      { return caminhao; }
-    public LocalDate     getData()          { return data; }
-    public List<Pedido>  getPedidos()       { return pedidos; }
-    public StatusRoteiro getStatus() { return status; }
-
+    public Long          getNumeroRoteiro()                    { return numeroRoteiro; }
+    public Caminhao      getCaminhao()                         { return caminhao; }
+    public LocalDate     getData()                             { return data; }
+    public List<Pedido>  getPedidos()                          { return pedidos; }
+    public StatusRoteiro getStatus()                           { return status; }
+    public void          setStatus(StatusRoteiro status)       { this.status = status; }
+    public boolean       isConferenciaConfirmada()             { return conferenciaConfirmada; }
+    public void          setConferenciaConfirmada(boolean v)   { this.conferenciaConfirmada = v; }
+    public int           getHorarioMinFinalizacaoHora()        { return horarioMinFinalizacaoHora; }
+    public void          setHorarioMinFinalizacaoHora(int v)   { this.horarioMinFinalizacaoHora = v; }
 
     @Override
     public String toString() {

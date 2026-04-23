@@ -88,18 +88,10 @@ public class EstoqueService {
         System.out.println("Estoque reposto para pedido #" + pedido.getNumeroPedido());
     }
 
-    // ── Exibir ────────────────────────────────────────────────────────────────
+    // ── Listagem ──────────────────────────────────────────────────────────────
 
-    public void exibirEstoque() {
-        System.out.println("══════════════════════════════════════════════════");
-        System.out.println("  ESTOQUE ATUAL");
-        System.out.println("──────────────────────────────────────────────────");
-        for (Produto p : Produto.values()) {
-            int qtd = consultarEstoque(p);
-            String alerta = qtd == 0 ? " *** SEM ESTOQUE ***" : (qtd <= 5 ? " (baixo)" : "");
-            System.out.printf("  [%s] %-30s %4d un.%s%n",
-                    p.getCodigoProduto(), p.getNome(), qtd, alerta);
-        }
-        System.out.println("══════════════════════════════════════════════════");
+    @Transactional(readOnly = true)
+    public List<Estoque> listar() {
+        return estoqueRepository.findAll();
     }
 }

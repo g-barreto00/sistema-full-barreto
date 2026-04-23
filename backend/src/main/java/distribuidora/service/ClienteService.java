@@ -49,19 +49,6 @@ public class ClienteService {
     }
 
     @Transactional(readOnly = true)
-    public List<Cliente> buscarPorBairro(String bairro) {
-        return clienteRepository.findByBairroIgnoreCase(bairro);
-    }
-
-    @Transactional(readOnly = true)
-    public List<Cliente> buscarPorTelefone(String telefone) {
-        String t = telefone.replaceAll("[^0-9]", "");
-        return clienteRepository.findAll().stream()
-                .filter(c -> c.getTelefone().replaceAll("[^0-9]", "").contains(t))
-                .toList();
-    }
-
-    @Transactional(readOnly = true)
     public Optional<Cliente> buscarPorDocumento(String documento) {
         String limpo = documento.replaceAll("[.\\-/]", "");
         return clienteRepository.findAll().stream()

@@ -100,24 +100,12 @@ public class RoteiroService {
     }
 
     @Transactional(readOnly = true)
-    public List<Roteiro> listarPorCaminhao(Caminhao caminhao) {
-        return roteiroRepository.findByCaminhao(caminhao);
-    }
-
-    @Transactional(readOnly = true)
     public Optional<Roteiro> buscarPorNumero(Long numero) {
         return roteiroRepository.findById(numero);
     }
 
-    // Aliases mantidos para compatibilidade com controllers
-    @Transactional(readOnly = true)
-    public List<Caminhao> getCaminhoes() { return caminhaoRepository.findAll(); }
-
-    @Transactional(readOnly = true)
-    public List<Roteiro>  getRoteiros()  { return roteiroRepository.findAll(); }
-
     @Transactional
     public Roteiro salvarRoteiro(Roteiro roteiro) {
-    return roteiroRepository.save(roteiro);
-}
+        return roteiroRepository.save(roteiro);
+    }
 }

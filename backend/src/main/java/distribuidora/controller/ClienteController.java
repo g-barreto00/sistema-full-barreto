@@ -18,19 +18,16 @@ public class ClienteController {
         this.clienteService = clienteService;
     }
 
-    /** GET /api/clientes — lista apenas ativos */
     @GetMapping
     public List<Cliente> listarAtivos() {
         return clienteService.listarAtivos();
     }
 
-    /** GET /api/clientes/todos — lista todos (ativos + inativos) */
     @GetMapping("/todos")
     public List<Cliente> listarTodos() {
         return clienteService.listarTodos();
     }
 
-    /** GET /api/clientes/{id} */
     @GetMapping("/{id}")
     public ResponseEntity<Cliente> buscarPorId(@PathVariable Long id) {
         return clienteService.buscarPorId(id)
@@ -38,7 +35,6 @@ public class ClienteController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    /** GET /api/clientes/buscar?q=termo */
     @GetMapping("/buscar")
     public List<Cliente> buscar(@RequestParam String q) {
         return clienteService.buscarPor(q);
@@ -46,18 +42,18 @@ public class ClienteController {
 
     @PostMapping
     public ResponseEntity<?> cadastrar(@RequestBody Map<String, String> body) {
-        String tipo                = body.getOrDefault("tipo", "CPF");
-        String nome                = body.get("nome");
-        String documento           = body.get("documento");
-        String endereco            = body.get("endereco");
-        String bairro              = body.get("bairro");
-        String telefone            = body.get("telefone");
-        String razao               = body.get("razaoSocial");
-        String ref                 = body.get("pontoReferencia");
-        String cep                 = body.get("cep");
-        String responsavelPedidos  = body.get("responsavelPedidos");
+        String tipo               = body.getOrDefault("tipo", "CPF");
+        String nome               = body.get("nome");
+        String documento          = body.get("documento");
+        String endereco           = body.get("endereco");
+        String bairro             = body.get("bairro");
+        String telefone           = body.get("telefone");
+        String razao              = body.get("razaoSocial");
+        String ref                = body.get("pontoReferencia");
+        String cep                = body.get("cep");
+        String responsavelPedidos = body.get("responsavelPedidos");
 
-        // ── Campos obrigatórios para todos ────────────────────────────────
+        // ── Campos obrigatórios ───────────────────────────────────────────
         if (nome == null || nome.isBlank())
             return ResponseEntity.badRequest().body("Nome é obrigatório.");
         if (endereco == null || endereco.isBlank())
@@ -69,7 +65,6 @@ public class ClienteController {
         if (cep == null || cep.isBlank())
             return ResponseEntity.badRequest().body("CEP é obrigatório.");
 
-        // ── Campos obrigatórios só para CNPJ ──────────────────────────────
         if ("CNPJ".equalsIgnoreCase(tipo)) {
             if (documento == null || documento.isBlank())
                 return ResponseEntity.badRequest().body("CNPJ é obrigatório.");
@@ -79,29 +74,32 @@ public class ClienteController {
                 return ResponseEntity.badRequest().body("Responsável por pedidos é obrigatório.");
         }
 
+        // ── Documento duplicado — bloquear ────────────────────────────────
+        if (documento != null && !documento.isBlank()) {
+            if (clienteService.buscarPorDocumento(documento).isPresent()) {
+                return ResponseEntity.badRequest().body("CPF/CNPJ já cadastrado para outro cliente.");
+            }
+        }
+
         Cliente c = "CNPJ".equalsIgnoreCase(tipo)
                 ? new Cliente(nome, documento, razao, endereco, bairro, telefone)
                 : new Cliente(nome, documento, endereco, bairro, telefone);
 
-        if (ref != null && !ref.isBlank())
-            c.setPontoReferencia(ref);
-        if (cep != null && !cep.isBlank())
-            c.setCep(cep);
+        if (ref != null && !ref.isBlank())             c.setPontoReferencia(ref);
+        if (cep != null && !cep.isBlank())             c.setCep(cep);
         if (responsavelPedidos != null && !responsavelPedidos.isBlank())
             c.setResponsavelPedidos(responsavelPedidos);
 
         return ResponseEntity.ok(clienteService.cadastrar(c));
     }
 
-    /** PATCH /api/clientes/{id}/toggle — ativa ou desativa */
     @PatchMapping("/{id}/toggle")
     public ResponseEntity<String> toggleAtivo(@PathVariable Long id) {
         return clienteService.buscarPorId(id).map(c -> {
             boolean eraAtivo = c.isAtivo();
             if (eraAtivo) clienteService.desativar(c);
             else          clienteService.reativar(c);
-            String msg = eraAtivo ? "desativado" : "reativado";
-            return ResponseEntity.ok(msg);
+            return ResponseEntity.ok(eraAtivo ? "desativado" : "reativado");
         }).orElse(ResponseEntity.notFound().build());
     }
 }

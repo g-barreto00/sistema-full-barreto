@@ -2,6 +2,7 @@ package distribuidora.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import distribuidora.enums.FormaPagamento;
 import distribuidora.enums.Produto;
 import distribuidora.enums.StatusPedido;
 import jakarta.persistence.*;
@@ -41,6 +42,11 @@ public class Pedido {
 
     @Enumerated(EnumType.STRING)
     private StatusPedido status;
+
+    @Enumerated(EnumType.STRING)
+    private FormaPagamento formaPagamento;
+
+    private boolean pago = false;
 
     // ── Construtores ──────────────────────────────────────────────────────────
 
@@ -100,33 +106,22 @@ public class Pedido {
         return false;
     }
 
-    // ── Exibir ────────────────────────────────────────────────────────────────
+    // ── Getters / Setters ─────────────────────────────────────────────────────
 
-    public void exibirResumo() {
-        System.out.println("╔══════════════════════════════════════════════╗");
-        System.out.printf ("  Pedido #%-4d  %s%n", numeroPedido, dataPedido.format(FMT));
-        System.out.println("  Cliente : " + cliente.getNome() + " / " + cliente.getBairro());
-        System.out.println("  Status  : " + status.getDescricao());
-        System.out.println("────────────────────────────────────────────────");
-        itens.forEach(System.out::println);
-        System.out.println("────────────────────────────────────────────────");
-        System.out.printf ("  Valor total : R$ %.2f%n", valorTotal);
-        System.out.printf ("  Peso total  : %.2f kg%n", pesoTotal);
-        System.out.println("╚══════════════════════════════════════════════╝");
-    }
-
-    // ── Getters ───────────────────────────────────────────────────────────────
-
-    public Long             getNumeroPedido() { return numeroPedido; }
-    public Cliente          getCliente()      { return cliente; }
-    public Roteiro          getRoteiro()      { return roteiro; }
-    public void             setRoteiro(Roteiro r) { this.roteiro = r; }
-    public List<ItemPedido> getItens()        { return itens; }
-    public double           getValorTotal()   { return valorTotal; }
-    public double           getPesoTotal()    { return pesoTotal; }
-    public LocalDate        getDataPedido()   { return dataPedido; }
-    public StatusPedido     getStatus()       { return status; }
-    public void             setStatus(StatusPedido s) { this.status = s; }
+    public Long            getNumeroPedido()              { return numeroPedido; }
+    public Cliente         getCliente()                   { return cliente; }
+    public Roteiro         getRoteiro()                   { return roteiro; }
+    public void            setRoteiro(Roteiro r)          { this.roteiro = r; }
+    public List<ItemPedido> getItens()                    { return itens; }
+    public double          getValorTotal()                { return valorTotal; }
+    public double          getPesoTotal()                 { return pesoTotal; }
+    public LocalDate       getDataPedido()                { return dataPedido; }
+    public StatusPedido    getStatus()                    { return status; }
+    public void            setStatus(StatusPedido s)      { this.status = s; }
+    public FormaPagamento  getFormaPagamento()            { return formaPagamento; }
+    public void            setFormaPagamento(FormaPagamento v) { this.formaPagamento = v; }
+    public boolean         isPago()                       { return pago; }
+    public void            setPago(boolean v)             { this.pago = v; }
 
     @Override
     public String toString() {

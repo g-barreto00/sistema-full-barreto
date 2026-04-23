@@ -55,6 +55,7 @@ public class DataInitializer implements CommandLineRunner {
         estoqueService.inicializar(Produto.COM_GAS_500ML,      25);
         estoqueService.inicializar(Produto.ML_1500,            20);
         estoqueService.inicializar(Produto.LITROS_5,           15);
+        estoqueService.inicializar(Produto.GARRAFAO_VAZIO, 20);
 
         // ── Clientes de teste ─────────────────────────────────────────────────
         Cliente c1 = clienteService.cadastrar(

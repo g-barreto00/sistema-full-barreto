@@ -19,6 +19,13 @@ async function req(path, opts = {}) {
 }
 
 const api = {
+  carnes: {
+    listar: (clienteId) => req(`/api/carnes?clienteId=${clienteId}`),
+    saldo: (clienteId) => req(`/api/carnes/saldo?clienteId=${clienteId}`),
+    criar: (d) => req("/api/carnes", { method: "POST", body: JSON.stringify(d) }),
+    usar: (id, quantidade) => req(`/api/carnes/${id}/usar`, { method: "PATCH", body: JSON.stringify({ quantidade }) }),
+  },
+
   bairros: {
     listar: () => req("/api/bairros"),
     criar: (nome) => req("/api/bairros", { method: "POST", body: JSON.stringify({ nome }) }),
@@ -52,6 +59,8 @@ const api = {
       req(`/api/roteiros/${rid}/pedidos`, { method: "POST", body: JSON.stringify({ pedidoId: pid }) }),
     remPedido: (rid, pid) => req(`/api/roteiros/${rid}/pedidos/${pid}`, { method: "DELETE" }),
     finalizar: (id, pedidosEntregues) => req(`/api/roteiros/${id}/finalizar`, { method: "PATCH", body: JSON.stringify({ pedidosEntregues }) }),
+    confirmarConferencia: (id) => req(`/api/roteiros/${id}/confirmar-conferencia`, { method: "PATCH" }),
+    listarTodos: () => req("/api/roteiros"),
   },
 };
 
@@ -505,6 +514,7 @@ function Sidebar({ page, setPage }) {
     { id: "dashboard", icon: "dashboard", label: "Dashboard" },
     { id: "clientes", icon: "group", label: "Clientes" },
     { id: "pedidos", icon: "receipt_long", label: "Pedidos" },
+    { id: "carnes", icon: "confirmation_number", label: "Carnês" },
     { id: "roteiros", icon: "map", label: "Roteiros" },
     { id: "estoque", icon: "inventory_2", label: "Estoque" },
   ];
@@ -875,10 +885,20 @@ function ClientesPage() {
     if (!form.bairro?.trim()) { alert("Bairro é obrigatório."); return; }
     if (!form.telefone?.trim()) { alert("Telefone é obrigatório."); return; }
     if (!form.cep?.trim()) { alert("CEP é obrigatório."); return; }
+    if (form.cep && !validarCEP(form.cep)) { alert("CEP inválido. Verifique o número digitado."); return; }
+    if (form.telefone && !validarTelefone(form.telefone)) { alert("Telefone inválido. Digite um número com DDD."); return; }
+    if (form.tipo === "CPF" && form.documento && !validarCPF(form.documento)) { alert("CPF inválido. Verifique o número digitado."); return; }
     if (form.tipo === "CNPJ") {
       if (!form.documento?.trim()) { alert("CNPJ é obrigatório."); return; }
+      if (!validarCNPJ(form.documento)) { alert("CNPJ inválido. Verifique o número digitado."); return; }
       if (!form.razaoSocial?.trim()) { alert("Razão Social é obrigatória."); return; }
       if (!form.responsavelPedidos?.trim()) { alert("Responsável por pedidos é obrigatório."); return; }
+    }
+    // Documento duplicado — bloquear
+    if (dupWarnings.documento) { alert("CPF/CNPJ já cadastrado. Não é possível cadastrar outro cliente com o mesmo documento."); return; }
+    // Telefone duplicado — confirmar
+    if (dupWarnings.telefone) {
+      if (!window.confirm(`Atenção: ${dupWarnings.telefone}. Deseja cadastrar mesmo assim?`)) return;
     }
     setSaving(true);
     try {
@@ -2054,6 +2074,7 @@ function PedidosPage() {
 function RoteirosPage() {
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
   const { data: roteiros, loading, error, refetch } = useFetch(() => api.roteiros.listar(today), [today]);
+
   const { data: caminhoes, loading: lcam, refetch: refetchCam } = useFetch(() => api.roteiros.caminhoes());
   const { data: pedidos } = useFetch(() => api.pedidos.listar());
   const [selected, setSelected] = useState(null);
@@ -2062,13 +2083,30 @@ function RoteirosPage() {
   const [showFinalizar, setShowFinalizar] = useState(false);
   const [roteiroToFinalizar, setRoteiroToFinalizar] = useState(null);
   const [checkedPedidos, setCheckedPedidos] = useState({});
+  const [formasPagamento, setFormasPagamento] = useState({});
   const [finalizando, setFinalizando] = useState(false);
+  const [etapaFinalizar, setEtapaFinalizar] = useState(1);
+  const [confirmandoConferencia, setConfirmandoConferencia] = useState(false);
   const [showNewCam, setShowNewCam] = useState(false);
   const [saving, setSaving] = useState(false);
   const [rForm, setRForm] = useState({ caminhaoId: "", data: today });
   const [cForm, setCForm] = useState({ placa: "", motorista: "", capacidadeMaximaKg: "" });
 
+  const ROTEIRO_COLORS = [
+    { bg: "#00629e", light: "#cfe5ff", border: "#00629e" },
+    { bg: "#0f766e", light: "#ccfbf1", border: "#0f766e" },
+    { bg: "#6d28d9", light: "#ede9fe", border: "#6d28d9" },
+    { bg: "#b45309", light: "#fef3c7", border: "#b45309" },
+    { bg: "#0369a1", light: "#e0f2fe", border: "#0369a1" },
+    { bg: "#065f46", light: "#d1fae5", border: "#065f46" },
+    { bg: "#7c3aed", light: "#f3e8ff", border: "#7c3aed" },
+    { bg: "#9f1239", light: "#ffe4e6", border: "#9f1239" },
+  ];
+  function getRoteiroColor(idx) { return ROTEIRO_COLORS[idx % ROTEIRO_COLORS.length]; }
+
   const selectedRoteiro = roteiros?.find((r) => r.numeroRoteiro === selected) ?? roteiros?.[0] ?? null;
+  const selectedRoteiroIdx = roteiros?.findIndex((r) => r.numeroRoteiro === (selectedRoteiro?.numeroRoteiro)) ?? 0;
+  const selectedColor = getRoteiroColor(selectedRoteiroIdx < 0 ? 0 : selectedRoteiroIdx);
   const pedidosNoRoteiro = new Set((roteiros ?? []).flatMap(r => (r.pedidos ?? []).map(p => p.numeroPedido)));
   const pedidosPendentes = (pedidos ?? []).filter((p) => p.status === "PENDENTE" && !pedidosNoRoteiro.has(p.numeroPedido));
 
@@ -2114,13 +2152,32 @@ function RoteirosPage() {
     { label: "Capacidade", val: "—", icon: "analytics", sub: "média da frota", color: "#7c3aed" },
   ];
 
+  const PRODUTOS_LIST = [
+    { val: "GARRAFAO_REPOSICAO", label: "Garrafão 20L Reposição" },
+    { val: "GARRAFAO_COMPLETO",  label: "Garrafão 20L Completo"  },
+    { val: "GARRAFAO_VAZIO",     label: "Garrafão 20L Vazio"     },
+    { val: "BABY_200ML",         label: "Baby 200ml"             },
+    { val: "COPO_200ML",         label: "200ml Copo"             },
+    { val: "COPO_300ML",         label: "300ml Copo"             },
+    { val: "SEM_GAS_330ML",      label: "330ml sem Gás"          },
+    { val: "COM_GAS_330ML",      label: "330ml com Gás"          },
+    { val: "SEM_GAS_500ML",      label: "500ml sem Gás"          },
+    { val: "COM_GAS_500ML",      label: "500ml com Gás"          },
+    { val: "ML_1500",            label: "1.500ml"                },
+    { val: "LITROS_5",           label: "5 Litros"               },
+  ];
+
   function openFinalizar(roteiro) {
     const initial = {};
+    const fps = {};
     (roteiro.pedidos ?? []).forEach(p => {
       initial[p.numeroPedido] = p.status === "ENTREGUE";
+      fps[p.numeroPedido] = p.formaPagamento ?? "DINHEIRO";
     });
     setCheckedPedidos(initial);
+    setFormasPagamento(fps);
     setRoteiroToFinalizar(roteiro);
+    setEtapaFinalizar(1);
     setShowFinalizar(true);
   }
 
@@ -2128,17 +2185,36 @@ function RoteirosPage() {
     if (!roteiroToFinalizar) return;
     setFinalizando(true);
     try {
-      const entregues = Object.entries(checkedPedidos)
+      const pedidosEntregues = Object.entries(checkedPedidos)
         .filter(([, v]) => v)
-        .map(([k]) => Number(k));
-      await api.roteiros.finalizar(roteiroToFinalizar.numeroRoteiro, entregues);
-      setShowFinalizar(false);
-      setRoteiroToFinalizar(null);
+        .map(([k]) => ({
+          pedidoId: Number(k),
+          formaPagamento: formasPagamento[k] ?? "DINHEIRO"
+        }));
+      await api.roteiros.finalizar(roteiroToFinalizar.numeroRoteiro, pedidosEntregues);
+      setEtapaFinalizar(2);
       refetch();
     } catch (err) {
       alert("Erro ao finalizar: " + err.message);
     } finally {
       setFinalizando(false);
+    }
+  }
+
+  async function handleConfirmarConferencia() {
+    if (!roteiroToFinalizar) return;
+    setConfirmandoConferencia(true);
+    try {
+      await api.roteiros.confirmarConferencia(roteiroToFinalizar.numeroRoteiro);
+      setShowFinalizar(false);
+      setRoteiroToFinalizar(null);
+      setFormasPagamento({});
+      setEtapaFinalizar(1);
+      refetch();
+    } catch (err) {
+      alert("Erro: " + err.message);
+    } finally {
+      setConfirmandoConferencia(false);
     }
   }
 
@@ -2201,7 +2277,7 @@ function RoteirosPage() {
   .text-right { text-align: right; }
   .font-bold { font-weight: 700; }
   .color-primary { color: #00629e; }
-  @media print { body { padding: 16px; } }
+  @media print { body { padding: 16px; } .no-print { display: none !important; } }
   @page { size: A4; margin: 15mm; }
 </style>
 </head>
@@ -2297,12 +2373,27 @@ ${pedidos.map((p, idx) => `
   <span>ROTA-${String(roteiro.numeroRoteiro).padStart(3,"0")} · ${dataStr} · ${pedidos.length} paradas</span>
 </div>
 
+<div style="position:fixed;bottom:20px;right:20px;display:flex;gap:10px;z-index:999" class="no-print">
+  <button onclick="window.print()" style="background:#00629e;color:white;border:none;padding:10px 20px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.2);display:flex;align-items:center;gap:8px;">
+    &#128438; Imprimir / Salvar PDF
+  </button>
+  <button onclick="window.close()" style="background:#f0f4f7;color:#2a3439;border:1px solid #ccc;padding:10px 20px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;">
+    ✕ Fechar
+  </button>
+</div>
 </body></html>`;
 
-    const win = window.open("", "_blank");
-    win.document.write(html);
-    win.document.close();
-    win.onload = () => win.print();
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const nomeArquivo = `ROTA-${String(roteiro.numeroRoteiro).padStart(3,"0")}-${formatDate(roteiro.data).replace(/\//g,"-")}.html`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nomeArquivo;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
+
   }
 
   return (
@@ -2355,20 +2446,20 @@ ${pedidos.map((p, idx) => `
               </div>
             ) : (
               <div className="grid-2">
-                {roteiros.map((r) => {
+                {roteiros.map((r, rIdx) => {
                   const pedCount = r.pedidos?.length ?? 0;
-                  const prog = pedCount > 0 ? Math.round((pedCount * 0.6)) : 0;
-                  const isActive = true;
+                  const rColor = getRoteiroColor(rIdx);
+                  const isSelected = selected === r.numeroRoteiro || (!selected && rIdx === 0);
                   return (
                     <div
                       key={r.numeroRoteiro}
-                      className={`route-card ${isActive ? "" : "amber"}`}
-                      style={{ cursor: "pointer", outline: selected === r.numeroRoteiro ? "2px solid var(--primary)" : "none" }}
+                      className="route-card"
+                      style={{ cursor: "pointer", borderLeftColor: rColor.border, outline: isSelected ? `2px solid ${rColor.border}` : "none", outlineOffset: 2 }}
                       onClick={() => setSelected(r.numeroRoteiro)}
                     >
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
                         <div>
-                          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.08em" }}>ROTA-{String(r.numeroRoteiro).padStart(3, "0")}</div>
+                          <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", color: rColor.border, letterSpacing: "0.08em" }}>ROTA-{String(r.numeroRoteiro).padStart(3, "0")}</div>
                           <div style={{ fontWeight: 700, fontSize: 14, marginTop: 2 }}>Roteiro {r.numeroRoteiro}</div>
                         </div>
                         <Badge variant={(STATUS_ROTEIRO_MAP[r.status] ?? STATUS_ROTEIRO_MAP.EM_ANDAMENTO).variant}>
@@ -2376,8 +2467,8 @@ ${pedidos.map((p, idx) => `
                         </Badge>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-                        <div style={{ width: 36, height: 36, borderRadius: 8, background: "var(--surface-low)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <Icon name="local_shipping" className="sm" style={{ color: "var(--text-muted)" }} />
+                        <div style={{ width: 36, height: 36, borderRadius: 8, background: rColor.light, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <Icon name="local_shipping" className="sm" style={{ color: rColor.border }} />
                         </div>
                         <div style={{ fontSize: 12 }}>
                           <div style={{ fontWeight: 700, color: "var(--text)" }}>{r.caminhao?.motorista ?? "—"}</div>
@@ -2390,12 +2481,12 @@ ${pedidos.map((p, idx) => `
                           <span style={{ fontWeight: 700 }}>{pedCount}</span>
                         </div>
                         <div className="progress-track">
-                          <div className="progress-fill progress-blue" style={{ width: `${Math.min(pedCount * 5, 100)}%` }} />
+                          <div className="progress-fill" style={{ width: `${Math.min(pedCount * 5, 100)}%`, background: rColor.border }} />
                         </div>
                       </div>
                       <div style={{ display: "flex", gap: 8, marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--surface-low)" }}>
                         <button className="btn btn-ghost btn-sm" style={{ flex: 1 }} onClick={(e) => { e.stopPropagation(); setDetailRoteiro(r); }}>Detalhes</button>
-                        <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); setSelected(r.numeroRoteiro); }}>
+                        <button className="btn btn-sm" style={{ background: rColor.bg, color: "white", padding: "6px 12px", fontSize: 12, fontWeight: 600, borderRadius: "var(--radius-sm)", border: "none", cursor: "pointer" }} onClick={(e) => { e.stopPropagation(); setSelected(r.numeroRoteiro); }}>
                           Ver Rota
                         </button>
                       </div>
@@ -2452,6 +2543,8 @@ ${pedidos.map((p, idx) => `
               )}
             </div>
           </div>
+
+
         </div>
 
         {/* Detalhes da Rota */}
@@ -2461,7 +2554,7 @@ ${pedidos.map((p, idx) => `
           </div>
           {selectedRoteiro ? (
             <div className="card" style={{ overflow: "hidden" }}>
-              <div style={{ background: "var(--primary)", padding: "20px 20px 16px", color: "white" }}>
+              <div style={{ background: selectedColor.bg, padding: "20px 20px 16px", color: "white" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14 }}>
                   <div>
                     <h3 style={{ fontSize: 18, fontWeight: 800, fontFamily: "Manrope" }}>ROTA-{String(selectedRoteiro.numeroRoteiro).padStart(3, "0")}</h3>
@@ -2565,7 +2658,7 @@ ${pedidos.map((p, idx) => `
 
                 <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--surface-low)" }}>
                   {selectedRoteiro?.status !== "FINALIZADO" ? (
-                    <button className="btn btn-danger btn-sm w-full" style={{ justifyContent: "center", width: "100%" }}
+                    <button className="btn btn-sm w-full" style={{ justifyContent: "center", width: "100%", background: selectedColor.bg, color: "white" }}
                       onClick={() => openFinalizar(selectedRoteiro)}>
                       Finalizar Rota
                     </button>
@@ -2695,62 +2788,180 @@ ${pedidos.map((p, idx) => `
       <Modal
         open={showFinalizar}
         onClose={() => setShowFinalizar(false)}
-        title="Fechar Roteiro"
+        title="Finalizar Roteiro"
         footer={
           <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
-            <span style={{ fontSize: 12, color: "var(--text-sec)" }}>
-              <strong>{Object.values(checkedPedidos).filter(Boolean).length}</strong> de <strong>{Object.keys(checkedPedidos).length}</strong> pedidos marcados como entregues
-            </span>
-            <div style={{ display: "flex", gap: 10 }}>
-              <button className="btn btn-ghost btn-sm" onClick={() => setShowFinalizar(false)}>Cancelar</button>
-              <button className="btn btn-primary btn-sm" onClick={handleFinalizar} disabled={finalizando}>
-                {finalizando ? "Finalizando…" : "Confirmar Fechamento"}
-              </button>
-            </div>
+            {etapaFinalizar === 1 && (
+              <>
+                <span style={{ fontSize: 12, color: "var(--text-sec)" }}>
+                  <strong>{Object.values(checkedPedidos).filter(Boolean).length}</strong> de <strong>{Object.keys(checkedPedidos).length}</strong> entregues
+                </span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setShowFinalizar(false)}>Cancelar</button>
+                  <button className="btn btn-primary btn-sm" onClick={handleFinalizar} disabled={finalizando}>
+                    {finalizando ? "Verificando…" : <>Próximo <Icon name="arrow_forward" className="sm" /></>}
+                  </button>
+                </div>
+              </>
+            )}
+            {etapaFinalizar === 2 && (
+              <>
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{Object.values(checkedPedidos).filter(Boolean).length} pedidos entregues</span>
+                <button className="btn btn-primary btn-sm" onClick={handleConfirmarConferencia} disabled={confirmandoConferencia}>
+                  {confirmandoConferencia ? "Fechando…" : "✓ Confirmar e Fechar o Dia"}
+                </button>
+              </>
+            )}
           </div>
         }
       >
         {roteiroToFinalizar && (
           <div>
-            <div style={{ background: "var(--surface-low)", borderRadius: "var(--radius-sm)", padding: "12px 16px", marginBottom: 16 }}>
-              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 2 }}>Roteiro</div>
-              <div style={{ fontWeight: 700, fontSize: 15, fontFamily: "Manrope" }}>
+            {/* Indicador de etapas */}
+            <div style={{ display: "flex", gap: 4, marginBottom: 16 }}>
+              {["Entregas", "Conferência"].map((label, i) => (
+                <div key={i} style={{ flex: 1, textAlign: "center", padding: "6px", borderRadius: "var(--radius-sm)", fontSize: 11, fontWeight: 700,
+                  background: etapaFinalizar === i+1 ? "var(--primary)" : etapaFinalizar > i+1 ? "var(--green)" : "var(--surface-low)",
+                  color: etapaFinalizar >= i+1 ? "white" : "var(--text-muted)" }}>
+                  {etapaFinalizar > i+1 ? "✓ " : `${i+1}. `}{label}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background: "var(--surface-low)", borderRadius: "var(--radius-sm)", padding: "10px 14px", marginBottom: 16 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, fontFamily: "Manrope" }}>
                 ROTA-{String(roteiroToFinalizar.numeroRoteiro).padStart(3, "0")} · {roteiroToFinalizar.caminhao?.motorista ?? "—"} · {formatDate(roteiroToFinalizar.data)}
-              </div>
-              <div style={{ fontSize: 12, color: "var(--text-sec)", marginTop: 2 }}>
-                Marque os pedidos que foram entregues. Os desmarcados permanecem como Pendente.
               </div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {(roteiroToFinalizar.pedidos ?? []).map((p) => (
-                <label key={p.numeroPedido} style={{
-                  display: "flex", alignItems: "center", gap: 12, padding: "12px 14px",
-                  border: `1.5px solid ${checkedPedidos[p.numeroPedido] ? "var(--green)" : "var(--border-med)"}`,
-                  borderRadius: "var(--radius-sm)", cursor: "pointer",
-                  background: checkedPedidos[p.numeroPedido] ? "#f0fdf4" : "white",
-                  transition: "all 0.15s"
-                }}>
-                  <input
-                    type="checkbox"
-                    checked={!!checkedPedidos[p.numeroPedido]}
-                    onChange={(e) => setCheckedPedidos(prev => ({ ...prev, [p.numeroPedido]: e.target.checked }))}
-                    style={{ width: 16, height: 16, accentColor: "var(--green)", cursor: "pointer" }}
-                  />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>
-                      #{p.numeroPedido} · {p.cliente?.nome ?? "—"}
+            {/* ETAPA 1 — Confirmar entregas */}
+            {etapaFinalizar === 1 && (
+              <div>
+                <div style={{ fontSize: 11, color: "var(--text-sec)", marginBottom: 12 }}>
+                  Marque os pedidos entregues e selecione a forma de pagamento.
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {(roteiroToFinalizar.pedidos ?? []).map((p) => (
+                    <div key={p.numeroPedido} style={{
+                      padding: "12px 14px",
+                      border: `1.5px solid ${checkedPedidos[p.numeroPedido] ? "var(--green)" : "var(--border-med)"}`,
+                      borderRadius: "var(--radius-sm)",
+                      background: checkedPedidos[p.numeroPedido] ? "#f0fdf4" : "white",
+                      transition: "all 0.15s"
+                    }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}>
+                        <input
+                          type="checkbox"
+                          checked={!!checkedPedidos[p.numeroPedido]}
+                          onChange={(e) => setCheckedPedidos(prev => ({ ...prev, [p.numeroPedido]: e.target.checked }))}
+                          style={{ width: 16, height: 16, accentColor: "var(--green)", cursor: "pointer" }}
+                        />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>
+                            #{p.numeroPedido} · {p.cliente?.nome ?? "—"}
+                          </div>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                            {p.cliente?.bairro ? `${p.cliente.bairro} · ` : ""}R$ {(p.valorTotal ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                          </div>
+                        </div>
+                        <Badge variant={checkedPedidos[p.numeroPedido] ? "green" : "amber"}>
+                          {checkedPedidos[p.numeroPedido] ? "Entregue" : "Pendente"}
+                        </Badge>
+                      </label>
+                      {checkedPedidos[p.numeroPedido] && (
+                        <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--surface-low)", display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600 }}>Pagamento:</span>
+                          {["DINHEIRO", "PIX", "CARNE"].map(fp => (
+                            <button key={fp} type="button"
+                              onClick={() => setFormasPagamento(prev => ({ ...prev, [p.numeroPedido]: fp }))}
+                              style={{
+                                padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+                                border: "1.5px solid",
+                                borderColor: formasPagamento[p.numeroPedido] === fp ? "var(--primary)" : "var(--border-med)",
+                                background: formasPagamento[p.numeroPedido] === fp ? "var(--primary)" : "white",
+                                color: formasPagamento[p.numeroPedido] === fp ? "white" : "var(--text-sec)",
+                                cursor: "pointer"
+                              }}>
+                              {fp === "DINHEIRO" ? "💵 Dinheiro" : fp === "PIX" ? "📱 PIX" : "🎟 Carnê"}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
-                      {p.cliente?.endereco ?? ""}{p.cliente?.bairro ? ` · ${p.cliente.bairro}` : ""} · R$ {(p.valorTotal ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ETAPA 2 — Resumo do Dia */}
+            {etapaFinalizar === 2 && (() => {
+              const pedidosEntregues = (roteiroToFinalizar?.pedidos ?? []).filter(p => checkedPedidos[p.numeroPedido]);
+              const totalGeral = pedidosEntregues.reduce((a, p) => a + p.valorTotal, 0);
+
+              const pedidosDinheiro = pedidosEntregues.filter(p => formasPagamento[p.numeroPedido] === "DINHEIRO");
+              const pedidosPix     = pedidosEntregues.filter(p => formasPagamento[p.numeroPedido] === "PIX");
+              const pedidosCarne   = pedidosEntregues.filter(p => formasPagamento[p.numeroPedido] === "CARNE");
+
+              // Quantidade total de carnês usados (soma de garrafões nos pedidos de carnê)
+              const qtdCarnes = pedidosCarne.reduce((a, p) =>
+                a + p.itens?.filter(i => i.produto === "GARRAFAO_REPOSICAO" || i.produto === "GARRAFAO_COMPLETO")
+                             .reduce((s, i) => s + i.quantidade, 0), 0);
+
+              return (
+                <div>
+                  <div style={{ fontSize: 12, color: "var(--text-sec)", marginBottom: 16 }}>
+                    Resumo do roteiro. A conferência com comprovantes e carnês é feita separadamente.
                   </div>
-                  <Badge variant={checkedPedidos[p.numeroPedido] ? "green" : "amber"}>
-                    {checkedPedidos[p.numeroPedido] ? "Entregue" : "Pendente"}
-                  </Badge>
-                </label>
-              ))}
-            </div>
+
+                  {/* Total geral */}
+                  <div style={{ padding: "14px 16px", background: "var(--primary)", borderRadius: "var(--radius-sm)", color: "white", marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, opacity: 0.7, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Total de Pedidos Entregues</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "Manrope" }}>
+                      R$ {totalGeral.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                    </div>
+                    <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>{pedidosEntregues.length} pedidos entregues</div>
+                  </div>
+
+                  {/* Por forma de pagamento */}
+                  <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", color: "var(--text-muted)", letterSpacing: "0.05em", marginBottom: 8 }}>Por forma de pagamento</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                    {[
+                      { label: "💵 Dinheiro", pedidos: pedidosDinheiro, extra: null },
+                      { label: "📱 PIX",      pedidos: pedidosPix,     extra: null },
+                      { label: "🎟 Carnê",    pedidos: pedidosCarne,   extra: `${qtdCarnes} carnê${qtdCarnes !== 1 ? "s" : ""}` },
+                    ].map(s => (
+                      <div key={s.label} style={{ padding: "10px 14px", background: "var(--surface-low)", borderRadius: "var(--radius-sm)" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <div>
+                            <span style={{ fontWeight: 700, fontSize: 13 }}>{s.label}</span>
+                            <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 8 }}>{s.pedidos.length} pedido{s.pedidos.length !== 1 ? "s" : ""}</span>
+                            {s.extra && <span style={{ fontSize: 11, color: "var(--amber)", marginLeft: 8, fontWeight: 600 }}>· {s.extra}</span>}
+                          </div>
+                          <span style={{ fontWeight: 800, fontFamily: "Manrope", fontSize: 15 }}>
+                            R$ {s.pedidos.reduce((a, p) => a + p.valorTotal, 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        {/* Lista de pedidos desta forma */}
+                        {s.pedidos.length > 0 && (
+                          <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 3 }}>
+                            {s.pedidos.map(p => (
+                              <div key={p.numeroPedido} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-sec)", paddingLeft: 8 }}>
+                                <span>#{String(p.numeroPedido).padStart(4,"0")} · {p.cliente?.nome ?? "—"}</span>
+                                <span>R$ {(p.valorTotal ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", fontStyle: "italic", marginTop: 8 }}>
+                    Confirme para fechar o roteiro. A conferência final é feita com os comprovantes.
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </Modal>
@@ -3054,6 +3265,275 @@ function EstoquePage() {
   );
 }
 
+// ─── CARNÊS PAGE ─────────────────────────────────────────────────────────────
+function CarnesPage() {
+  const { data: clientes, loading: loadingClientes } = useFetch(() => api.clientes.listar());
+  const [saldos, setSaldos] = useState({});
+  const [selectedCliente, setSelectedCliente] = useState(null);
+  const [lotes, setLotes] = useState(null);
+  const [loadingLotes, setLoadingLotes] = useState(false);
+  const [showNovoLote, setShowNovoLote] = useState(false);
+  const [showLotes, setShowLotes] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [ordenacao, setOrdenacao] = useState("nome");
+  const [loteForm, setLoteForm] = useState({ quantidade: 15, dataCompra: new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" }), observacao: "" });
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+
+  // Busca saldos de todos os clientes
+  useEffect(() => {
+    if (!clientes) return;
+    clientes.forEach(async c => {
+      try {
+        const data = await api.carnes.saldo(c.id);
+        setSaldos(prev => ({ ...prev, [c.id]: data.saldo ?? 0 }));
+      } catch { setSaldos(prev => ({ ...prev, [c.id]: 0 })); }
+    });
+  }, [clientes]);
+
+  async function abrirLotes(c) {
+    setSelectedCliente(c);
+    setShowLotes(true);
+    setLoadingLotes(true);
+    try {
+      const data = await api.carnes.listar(c.id);
+      setLotes(data);
+    } catch { setLotes([]); }
+    finally { setLoadingLotes(false); }
+  }
+
+  async function handleNovoLote(e) {
+    e.preventDefault();
+    if (!selectedCliente) return;
+    setSaving(true);
+    try {
+      await api.carnes.criar({
+        clienteId: selectedCliente.id,
+        quantidade: Number(loteForm.quantidade),
+        dataCompra: loteForm.dataCompra,
+        observacao: loteForm.observacao,
+      });
+      setShowNovoLote(false);
+      setLoteForm({ quantidade: 15, dataCompra: today, observacao: "" });
+      const data = await api.carnes.listar(selectedCliente.id);
+      setLotes(data);
+      const s = await api.carnes.saldo(selectedCliente.id);
+      setSaldos(prev => ({ ...prev, [selectedCliente.id]: s.saldo ?? 0 }));
+    } catch (err) { alert("Erro: " + err.message); }
+    finally { setSaving(false); }
+  }
+
+  function getSaldoVariant(qtd) {
+    if (qtd === 0) return "gray";
+    if (qtd <= 2) return "red";
+    if (qtd <= 5) return "amber";
+    return "green";
+  }
+
+  const clientesFiltrados = (clientes ?? [])
+    .filter(c => !search || c.nome?.toLowerCase().includes(search.toLowerCase()) || c.bairro?.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => {
+      if (ordenacao === "nome") return a.nome.localeCompare(b.nome);
+      if (ordenacao === "saldo_desc") return (saldos[b.id] ?? 0) - (saldos[a.id] ?? 0);
+      if (ordenacao === "saldo_asc") return (saldos[a.id] ?? 0) - (saldos[b.id] ?? 0);
+      return 0;
+    });
+
+  const totalSaldo = Object.values(saldos).reduce((a, b) => a + b, 0);
+  const comSaldo = Object.values(saldos).filter(s => s > 0).length;
+  const semSaldo = Object.values(saldos).filter(s => s === 0).length;
+  const saldoLote = (lotes ?? []).reduce((acc, l) => acc + l.quantidadeRestante, 0);
+
+  return (
+    <div className="page">
+      <Topbar searchPlaceholder="Buscar clientes…" onSearch={setSearch} />
+      <div className="page-header">
+        <div>
+          <h2>Carnês</h2>
+          <p>Monitoramento de carnês por cliente</p>
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid-3 mb-6">
+        {[
+          { label: "Total em Circulação", val: totalSaldo, icon: "confirmation_number", color: "var(--primary)" },
+          { label: "Clientes com Saldo", val: comSaldo, icon: "group", color: "var(--green)" },
+          { label: "Clientes sem Saldo", val: semSaldo, icon: "person_off", color: "var(--text-muted)" },
+        ].map(s => (
+          <div className="stat-card" key={s.label}>
+            <div className="stat-label">{s.label} <Icon name={s.icon} className="sm" style={{ color: s.color }} /></div>
+            <div className="stat-val" style={{ color: s.color }}>{s.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filtros */}
+      <div className="filters-bar">
+        <div className="filter-select">
+          <Icon name="sort" className="sm" style={{ color: "var(--text-muted)" }} />
+          <select value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
+            <option value="nome">Ordem Alfabética</option>
+            <option value="saldo_desc">Maior Saldo</option>
+            <option value="saldo_asc">Menor Saldo</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Tabela de clientes */}
+      <div className="table-wrap">
+        {loadingClientes ? <Spinner /> : (
+          <table>
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th>Bairro</th>
+                <th style={{ textAlign: "center" }}>Saldo de Carnês</th>
+                <th style={{ textAlign: "center" }}>Status</th>
+                <th style={{ textAlign: "right" }}>Ações</th>
+              </tr>
+            </thead>
+            <tbody>
+              {clientesFiltrados.map((c, i) => {
+                const saldo = saldos[c.id] ?? 0;
+                const variant = getSaldoVariant(saldo);
+                const AV_COLORS = ["sky","indigo","amber","slate","green"];
+                return (
+                  <tr key={c.id}>
+                    <td>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <AvatarInitials name={c.nome} color={AV_COLORS[i % AV_COLORS.length]} />
+                        <div>
+                          <div style={{ fontWeight: 600 }}>{c.nome}</div>
+                          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>#{c.id} · {c.documento ?? "—"}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ color: "var(--text-sec)" }}>{c.bairro ?? "—"}</td>
+                    <td style={{ textAlign: "center" }}>
+                      <span style={{ fontSize: 20, fontWeight: 800, fontFamily: "Manrope", color: variant === "green" ? "var(--green)" : variant === "amber" ? "var(--amber)" : variant === "red" ? "var(--error)" : "var(--text-muted)" }}>
+                        {saldo}
+                      </span>
+                    </td>
+                    <td style={{ textAlign: "center" }}>
+                      <Badge variant={variant}>
+                        {saldo === 0 ? "Sem saldo" : saldo <= 2 ? "Crítico" : saldo <= 5 ? "Baixo" : "OK"}
+                      </Badge>
+                    </td>
+                    <td style={{ textAlign: "right" }}>
+                      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => abrirLotes(c)}>
+                          <Icon name="list" className="sm" /> Ver Lotes
+                        </button>
+                        <button className="btn btn-primary btn-sm" onClick={() => { setSelectedCliente(c); setShowNovoLote(true); }}>
+                          <Icon name="add" className="sm" /> Novo Lote
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Modal Lotes do Cliente */}
+      <Modal
+        open={showLotes}
+        onClose={() => setShowLotes(false)}
+        title={`Lotes — ${selectedCliente?.nome ?? ""}`}
+        footer={
+          <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+            <button className="btn btn-primary btn-sm" onClick={() => { setShowNovoLote(true); }}>
+              <Icon name="add" className="sm" /> Novo Lote
+            </button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setShowLotes(false)}>Fechar</button>
+          </div>
+        }
+      >
+        {/* saldo resumo */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
+          {[
+            { label: "Saldo", val: saldoLote, color: getSaldoVariant(saldoLote) === "green" ? "var(--green)" : getSaldoVariant(saldoLote) === "amber" ? "var(--amber)" : "var(--error)" },
+            { label: "Total", val: (lotes ?? []).reduce((a, l) => a + l.quantidadeTotal, 0), color: "var(--primary)" },
+            { label: "Usados", val: (lotes ?? []).reduce((a, l) => a + l.quantidadeUsada, 0), color: "var(--text-muted)" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "var(--surface-low)", borderRadius: "var(--radius-sm)", padding: "10px 12px", textAlign: "center" }}>
+              <div style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 4 }}>{s.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, fontFamily: "Manrope", color: s.color }}>{s.val}</div>
+            </div>
+          ))}
+        </div>
+
+        {loadingLotes ? <Spinner /> : (lotes ?? []).length === 0 ? (
+          <EmptyState message="Nenhum lote cadastrado." icon="confirmation_number" />
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 320, overflowY: "auto" }}>
+            {(lotes ?? []).map(l => (
+              <div key={l.id} style={{ padding: "12px 14px", background: "var(--surface-low)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{formatDate(l.dataCompra)}</div>
+                    {l.observacao && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{l.observacao}</div>}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{l.quantidadeUsada}/{l.quantidadeTotal} usados</span>
+                    <Badge variant={l.quantidadeRestante === 0 ? "red" : l.quantidadeRestante <= 5 ? "amber" : "green"}>
+                      {l.quantidadeRestante} restantes
+                    </Badge>
+                  </div>
+                </div>
+                <div className="progress-track" style={{ marginTop: 8 }}>
+                  <div className="progress-fill" style={{
+                    width: `${l.quantidadeTotal > 0 ? (l.quantidadeUsada / l.quantidadeTotal) * 100 : 0}%`,
+                    background: l.quantidadeRestante === 0 ? "var(--error)" : l.quantidadeRestante <= 5 ? "var(--amber)" : "var(--green)"
+                  }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
+
+      {/* Modal Novo Lote */}
+      <Modal open={showNovoLote} onClose={() => setShowNovoLote(false)} title={`Novo Lote — ${selectedCliente?.nome ?? ""}`}
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setShowNovoLote(false)}>Cancelar</button>
+            <button className="btn btn-primary" onClick={handleNovoLote} disabled={saving}>{saving ? "Salvando…" : "Criar Lote"}</button>
+          </>
+        }
+      >
+        <div className="form-row">
+          <div className="form-group">
+            <label>Quantidade de Carnês</label>
+            <input className="form-input" type="number" min="1" value={loteForm.quantidade} onChange={(e) => setLoteForm({ ...loteForm, quantidade: e.target.value })} />
+          </div>
+          <div className="form-group">
+            <label>Data de Compra</label>
+            <input className="form-input" type="date" value={loteForm.dataCompra} onChange={(e) => setLoteForm({ ...loteForm, dataCompra: e.target.value })} />
+          </div>
+        </div>
+        <div className="form-group">
+          <label>Observação <span style={{ color: "var(--text-muted)", fontWeight: 400, textTransform: "none" }}>(opcional)</span></label>
+          <input className="form-input" value={loteForm.observacao} onChange={(e) => setLoteForm({ ...loteForm, observacao: e.target.value })} placeholder="Ex: pagamento adiantado" />
+        </div>
+        <div style={{ background: "var(--surface-low)", borderRadius: "var(--radius-sm)", padding: "12px 14px", fontSize: 13 }}>
+          <div style={{ display: "flex", justifyContent: "space-between" }}>
+            <span style={{ color: "var(--text-sec)" }}>Saldo atual:</span>
+            <span style={{ fontWeight: 700 }}>{selectedCliente ? (saldos[selectedCliente.id] ?? 0) : 0} carnês</span>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
+            <span style={{ color: "var(--text-sec)" }}>Após adição:</span>
+            <span style={{ fontWeight: 700, color: "var(--green)" }}>{(selectedCliente ? (saldos[selectedCliente.id] ?? 0) : 0) + Number(loteForm.quantidade)} carnês</span>
+          </div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
 // ─── ROOT APP ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [page, setPage] = useState("dashboard");
@@ -3063,6 +3543,7 @@ export default function App() {
     clientes: ClientesPage,
     pedidos: PedidosPage,
     roteiros: RoteirosPage,
+    carnes: CarnesPage,
     estoque: EstoquePage,
   };
 
